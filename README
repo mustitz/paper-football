@@ -1,0 +1,11 @@
+This project is an engine to play in paper football logic game. It is implemented
+as a console program. Through command line any GUI or user can ask engine
+about a position.
+
+To install application try following commands:
+    ./configure
+    make
+    sudo make install
+
+To install from GIT repository run before
+    autoreconf -vis
