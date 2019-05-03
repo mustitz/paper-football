@@ -9,3 +9,10 @@ To install application try following commands:
 
 To install from GIT repository run before
     autoreconf -vis
+
+Commands:
+=========
+
+ping [arg]
+      Outputs pong with arg and flush stdout and stderr. May be useful for using engine
+      from scripts.
