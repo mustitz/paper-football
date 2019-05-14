@@ -8,8 +8,8 @@ else
 EXTRA_CFLAGS = -Ofast
 endif
 
-insider_CFLAGS = $(EXTRA_CFLAGS) -I../include
-insider_SOURCES = insider.c
+insider_CFLAGS = -DMAKE_CHECK $(EXTRA_CFLAGS) -I../include
+insider_SOURCES = insider.c ../sources/utils.c
 
 TESTS = run-insider
 

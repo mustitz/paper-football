@@ -1,1 +1,1 @@
-noinst_HEADERS = paper-football.h
+noinst_HEADERS = paper-football.h insider.h

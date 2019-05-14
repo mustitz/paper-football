@@ -45,3 +45,62 @@ void * multialloc(const size_t n, const size_t * const sizes,
 
     return result;
 }
+
+
+
+#ifdef MAKE_CHECK
+
+#include "insider.h"
+
+#define N 4
+#define GRANULARITY 64
+
+void test_fail(const char * const fmt, ...) __attribute__ ((format (printf, 1, 2)));
+
+int test_multialloc(void)
+{
+    const char * base = "0aAK";
+
+    static const size_t sizes[N] = {8000, 301, 5002, 503 };
+    void * ptrs[N];
+    void * const data = multialloc(N, sizes, ptrs, GRANULARITY);
+
+    if (data == NULL) {
+        test_fail("Not enought memory to allocate multiblock.");
+    }
+
+    /* Fill data */
+    for (int i=0; i<N; ++i) {
+        char * restrict const ptr = ptrs[i];
+        for (size_t j=0; j<sizes[i]; ++j) {
+            ptr[j] = base[i] + (j % 10);
+        }
+    }
+
+    /* Check allligment */
+    for (int i=0; i<N; ++i) {
+        const void * const ptr = ptrs[i];
+        const ptrdiff_t address = ptr_diff(NULL, ptr);
+        if (address % GRANULARITY != 0) {
+            test_fail("Returned pointer %p is not alligned to %d (index %d).", ptr, GRANULARITY, i);
+        }
+    }
+
+    /* Check data (overlapping, out of malloc with valgrind) */
+    for (int i=0; i<N; ++i) {
+        const char * const ptr = ptrs[i];
+        for (size_t j=0; j<sizes[i]; ++j) {
+            char expected = base[i] + (j % 10);
+            if (ptr[j] != expected) {
+                test_fail("Unexpected character “%c” in block #%d:\n"
+                          "Expected value is “%c”.",
+                          ptr[j], i, expected);
+            }
+        }
+    }
+
+    free(data);
+    return 0;
+}
+
+#endif

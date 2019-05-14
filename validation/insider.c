@@ -1,3 +1,4 @@
+#include "insider.h"
 #include "paper-football.h"
 
 #include <stdarg.h>
@@ -7,8 +8,6 @@
 #include <string.h>
 
 const char * test_name = "";
-
-void test_fail(const char * const fmt, ...) __attribute__ ((format (printf, 1, 2)));
 
 void fail(void)
 {
@@ -49,6 +48,7 @@ struct test_item
 
 const struct test_item tests[] = {
     { "empty", &test_empty },
+    { "multialloc", &test_multialloc },
     { NULL, NULL }
 };
 

@@ -1,7 +1,7 @@
 AC_INIT([paper-football], [0.1], [mustitz@gmail.com])
 ${CFLAGS=""}
 
-AM_INIT_AUTOMAKE(dist-bzip2)
+AM_INIT_AUTOMAKE(dist-bzip2 subdir-objects)
 AC_CONFIG_MACRO_DIR([m4])
 
 
