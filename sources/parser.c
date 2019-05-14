@@ -277,3 +277,165 @@ int parser_read_id(struct line_parser * restrict const me)
         }
     }
 }
+
+
+
+#ifdef MAKE_CHECK
+
+#include "insider.h"
+
+#define KW_I           5
+#define KW_IF         10
+#define KW_IFNULL     20
+#define KW_IF_NULL    20
+#define KW_IFZERO     25
+#define KW_IF_ZERO    25
+#define KW_TEST      999
+
+#define ITEM(name) { #name, KW_##name }
+struct keyword_desc test_keywords[] = {
+    ITEM(I), ITEM(IF), ITEM(TEST),
+    ITEM(IFNULL), ITEM(IFZERO),
+    ITEM(IF_NULL), ITEM(IF_ZERO),
+    { NULL, 0 }
+};
+#undef ITEM
+
+static int test_skip_spaces(const char * line, int first_non_space_ch)
+{
+    struct line_parser line_parser;
+    struct line_parser * restrict lp = &line_parser;
+    parser_set_line(lp, line);
+
+    parser_skip_spaces(lp);
+
+    if (*lp->current != first_non_space_ch) {
+        test_fail(
+            "parser_skip_spaces is not working:\n"
+            "  line = `%s'\n"
+            "  current = `%s'\n"
+            "  non space char expected = `%c', actual `%c'.",
+            line, lp->current, first_non_space_ch, *lp->current
+        );
+    }
+
+    return 0;
+}
+
+static int test_read_keyword(
+    const struct keyword_tracker * restrict const tracker,
+    const char * const line,
+    const int expected_keyword_id,
+    const unsigned char next_ch
+) {
+    struct line_parser line_parser;
+    struct line_parser * restrict const lp = &line_parser;
+    parser_set_line(lp, line);
+
+    const int actual_keyword_id = parser_read_keyword(lp, tracker);
+
+    if (*lp->current != next_ch) {
+        test_fail(
+            "test_read_keyword is not working:\n"
+            "  line = `%s'\n"
+            "  current = `%s'\n"
+            "  next char expected = `%c', actual `%c'.",
+            line, lp->current, next_ch, *lp->current
+        );
+    }
+
+    if (actual_keyword_id != expected_keyword_id) {
+        test_fail(
+            "test_read_keyword is not working:\n"
+            "  line = `%s'\n"
+            "  current = `%s'\n"
+            "  keyword_id expected = %d, actual = %d.",
+            line, lp->current, expected_keyword_id, actual_keyword_id
+        );
+    }
+
+    return 0;
+}
+
+static int test_try_int(
+    const char * const line,
+    const int expected_value,
+    const int expected_err,
+    const unsigned char next_ch
+) {
+    struct line_parser line_parser;
+    struct line_parser * restrict const lp = &line_parser;
+    parser_set_line(lp, line);
+
+    int value;
+    const int err = parser_try_int(lp, &value);
+
+    const int is_ok = 1
+        && value == expected_value
+        && err == expected_err
+        && next_ch == *lp->current
+    ;
+
+    if (!is_ok) {
+        test_fail(
+            "test_try_int is not working:\n"
+            "  line = `%s'\n"
+            "  current = `%s', next char = `%c'\n"
+            "  value expected %d, actual %d,\n"
+            "  error expected %d, actual %d.",
+            line, lp->current, next_ch,
+            expected_value, value, expected_err, err
+        );
+    }
+
+    return 0;
+}
+
+int test_parser(void)
+{
+    test_skip_spaces("   123", '1');
+    test_skip_spaces(" \t \n\r 123", '1');
+    test_skip_spaces("", '\0');
+    test_skip_spaces("   ", '\0');
+    test_skip_spaces("123", '1');
+
+    const struct keyword_tracker * restrict const tracker = create_keyword_tracker(test_keywords, 0);
+    if (tracker == NULL) {
+        test_fail("build_keyword_tracker returns NULL.");
+    }
+    test_read_keyword(tracker, "I ", KW_I, ' ');
+    test_read_keyword(tracker, "TEST ", KW_TEST, ' ');
+    test_read_keyword(tracker, "IF ", KW_IF, ' ');
+    test_read_keyword(tracker, "IF_NULL ", KW_IF_NULL, ' ');
+    test_read_keyword(tracker, "IFNULL ", KW_IFNULL, ' ');
+    test_read_keyword(tracker, "IFZERO ", KW_IFZERO, ' ');
+    test_read_keyword(tracker, "IF_ZERO ", KW_IF_ZERO, ' ');
+    test_read_keyword(tracker, "IF_ZERO$", KW_IF_ZERO, '$');
+    test_read_keyword(tracker, "IF_ZERO", KW_IF_ZERO, '\0');
+    test_read_keyword(tracker, "XXX$", 0, '$');
+    test_read_keyword(tracker, "XIF", 0, '\0');
+    test_read_keyword(tracker, "IFF ", 0, ' ');
+
+    test_try_int("123", 123, 0, '\0');
+    test_try_int("124$", 124, 0, '$');
+    test_try_int("129 ", 129, 0, ' ');
+    test_try_int("128ull", 128, 0, 'u');
+    test_try_int("-321", -321, 0, '\0');
+    test_try_int("-321", -321, 0, '\0');
+    test_try_int("2147483647", 2147483647, 0, '\0');
+    test_try_int("-2147483647", -2147483647, 0, '\0');
+    test_try_int("-2147483648", -2147483648, 0, '\0');
+    test_try_int("", 0, PARSER_ERROR__END_OF_LINE, '\0');
+    test_try_int("xxx", 0, PARSER_ERROR__NO_DIGITS, 'x');
+    test_try_int("-xxx", 0, PARSER_ERROR__NO_DIGITS, '-');
+    test_try_int(" 234", 0, PARSER_ERROR__NO_DIGITS, ' ');
+    test_try_int("2147483648", INT_MAX, PARSER_WARNING__OVERFLOW, '\0');
+    test_try_int("-2147483649", INT_MIN, PARSER_WARNING__OVERFLOW, '\0');
+    test_try_int("-77777777777777$", INT_MIN, PARSER_WARNING__OVERFLOW, '$');
+    test_try_int(" 234", 0, PARSER_ERROR__NO_DIGITS, ' ');
+
+    destroy_keyword_tracker(tracker);
+    return 0;
+}
+
+#endif
