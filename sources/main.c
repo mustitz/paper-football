@@ -8,6 +8,7 @@
 #define KW_STATUS           3
 #define KW_NEW              4
 #define KW_STEP             5
+#define KW_HISTORY          6
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
@@ -17,6 +18,7 @@ struct keyword_desc keywords[] = {
     ITEM(STATUS),
     ITEM(NEW),
     ITEM(STEP),
+    ITEM(HISTORY),
     { NULL, 0 }
 };
 
@@ -35,6 +37,8 @@ struct cmd_parser
     struct geometry * geometry;
     struct state * state;
     struct state * backup;
+
+    struct history history;
 };
 
 
@@ -107,14 +111,19 @@ static int new_game(
     me->geometry = geometry;
     me->state = state;
     me->backup = backup;
+
+    me->history.qsteps = 0;
     return 0;
 }
 
-static void restore_backup(struct cmd_parser * restrict const me)
+static void restore_backup(
+    struct cmd_parser * restrict const me,
+    const unsigned int history_qsteps)
 {
     struct state * old_state = me->state;
     me->state = me->backup;
     me->backup = old_state;
+    me->history.qsteps = history_qsteps;
 }
 
 static enum step find_step(const void * const id, size_t len)
@@ -132,13 +141,15 @@ static enum step find_step(const void * const id, size_t len)
 
 
 
-void free_cmd_parser(const struct cmd_parser * const me)
+void free_cmd_parser(struct cmd_parser * restrict const me)
 {
     if (me->tracker) {
         destroy_keyword_tracker(me->tracker);
     }
 
     destroy_game(me);
+
+    free_history(&me->history);
 }
 
 int init_cmd_parser(struct cmd_parser * restrict const me)
@@ -160,6 +171,7 @@ int init_cmd_parser(struct cmd_parser * restrict const me)
         return status;
     }
 
+    init_history(&me->history);
     return 0;
 }
 
@@ -291,25 +303,56 @@ void process_step(struct cmd_parser * restrict const me)
         }
     } else {
         state_copy(me->backup, me->state);
+        const unsigned int history_qsteps = me->history.qsteps;
         do {
-            const int status = parser_read_id(lp);
+            int status = parser_read_id(lp);
             if (status != 0) {
                 error(lp, "Step direction expected.");
-                return restore_backup(me);
+                return restore_backup(me, history_qsteps);
             }
+
             enum step step = find_step(lp->lexem_start, lp->current - lp->lexem_start);
-            if (step == INVALID_STEP) {
+            if (step == QSTEPS) {
                 error(lp, "Invalid step direction, only NW, N, NE, E, SE, S, SW are supported.");
-                return restore_backup(me);
+                return restore_backup(me, history_qsteps);
             }
+
             const int ball = state_step(me->state, step);
             if (ball == NO_WAY) {
                 error(lp, "Direction occupied.");
-                return restore_backup(me);
+                return restore_backup(me, history_qsteps);
             }
+
+            status = history_push(&me->history, step);
+            if (status != 0) {
+                error(lp, "history_push failed with code %d.", status);
+                return restore_backup(me, history_qsteps);
+            }
+
             parser_skip_spaces(lp);
         } while (!parser_check_eol(lp));
     }
+}
+
+void process_history(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    if (!parser_check_eol(lp)) {
+        error(lp, "End of line expected (HISTORY command is parsed), but someting was found.");
+        return;
+    }
+
+    if (me->history.qsteps == 0) {
+        return;
+    }
+
+    const enum step * ptr = me->history.steps;
+    const enum step * const end = ptr + me->history.qsteps;
+    printf("%s", step_names[*ptr++]);
+    while (ptr != end) {
+        printf(" %s", step_names[*ptr++]);
+    }
+    printf("\n");
 }
 
 int process_cmd(struct cmd_parser * restrict const me, const char * const line)
@@ -350,6 +393,9 @@ int process_cmd(struct cmd_parser * restrict const me, const char * const line)
             break;
         case KW_STEP:
             process_step(me);
+            break;
+        case KW_HISTORY:
+            process_history(me);
             break;
         default:
             error(lp, "Unexpected keyword at the begginning of the line.");

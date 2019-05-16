@@ -26,3 +26,6 @@ new width height goal_width
 
 step direction1 [ direction2 [ ... ] ]
       Make one or move ball movements. Direction is one of NW N NE E SE S SW W.
+
+history
+      Print game history. It may be useful to implement save/load game functionality.
