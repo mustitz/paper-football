@@ -19,3 +19,7 @@ ping [arg]
 
 status
       Print game status (board geometry, active player (1 or 2), ball position, etc.
+
+new width height goal_width
+      Create new game with given standart geometry. “width” and “height” might be
+      odd positive, “goal_width” might be even positive.

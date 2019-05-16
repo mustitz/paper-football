@@ -6,6 +6,7 @@
 #define KW_QUIT             1
 #define KW_PING             2
 #define KW_STATUS           3
+#define KW_NEW              4
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
@@ -13,6 +14,7 @@ struct keyword_desc keywords[] = {
     ITEM(QUIT),
     ITEM(PING),
     ITEM(STATUS),
+    ITEM(NEW),
     { NULL, 0 }
 };
 
@@ -161,6 +163,77 @@ void process_status(struct cmd_parser * restrict const me)
     printf("Status:           %s\n", status_strs[state_status(state)]);
 }
 
+void process_new(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+
+    int status;
+    int width, height, goal_width;
+
+    parser_skip_spaces(lp);
+    status = parser_try_int(lp, &width);
+    if (status != 0) {
+        error(lp, "Board width integer constant expected in NEW command.");
+        return;
+    }
+
+    if (width % 2 != 1) {
+        error(lp, "Board width integer constant should be odd number.");
+        return;
+    }
+
+    if (width <= 4) {
+        error(lp, "Board width integer constant should be at least 5 or more.");
+        return;
+    }
+
+    parser_skip_spaces(lp);
+    status = parser_try_int(lp, &height);
+    if (status != 0) {
+        error(lp, "Board height integer constant expected in NEW command.");
+        return;
+    }
+
+    if (height % 2 != 1) {
+        error(lp, "Board height integer constant should be odd number.");
+        return;
+    }
+
+    if (height <= 4) {
+        error(lp, "Board height integer constant should be at least 5 or more.");
+        return;
+    }
+
+    parser_skip_spaces(lp);
+    status = parser_try_int(lp, &goal_width);
+    if (status != 0) {
+        error(lp, "Board goal width integer constant expected in NEW command.");
+        return;
+    }
+
+    if (goal_width % 2 != 0) {
+        error(lp, "Goal width integer constant should be even number.");
+        return;
+    }
+
+    if (goal_width <= 1) {
+        error(lp, "Goal height integer constant should be at least 2 or more.");
+        return;
+    }
+
+    if (goal_width + 3 > width) {
+        error(lp, "Goal height integer constant should be less than width-1 = %d.", width-1);
+        return;
+    }
+
+    if (!parser_check_eol(lp)) {
+        error(lp, "End of line expected (NEW command is completed), but someting was found.");
+        return;
+    }
+
+    new_game(me, width, height, goal_width);
+}
+
 int process_cmd(struct cmd_parser * restrict const me, const char * const line)
 {
     struct line_parser * restrict const lp = &me->line_parser;
@@ -193,6 +266,9 @@ int process_cmd(struct cmd_parser * restrict const me, const char * const line)
             break;
         case KW_STATUS:
             process_status(me);
+            break;
+        case KW_NEW:
+            process_new(me);
             break;
         default:
             error(lp, "Unexpected keyword at the begginning of the line.");
