@@ -52,6 +52,7 @@ const struct test_item tests[] = {
     { "parser", &test_parser },
     { "std-geometry", &test_std_geometry },
     { "step", &test_step },
+    { "history", &test_history },
     { NULL, NULL }
 };
 

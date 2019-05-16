@@ -498,4 +498,36 @@ int test_step(void)
     return 0;
 }
 
+#define TEST_QSTEPS   4096
+
+int test_history(void)
+{
+    struct history storage;
+    struct history * restrict const me = &storage;
+    init_history(me);
+
+    for (int i=0; i<TEST_QSTEPS; ++i) {
+        enum step step = i % QSTEPS;
+        history_push(me, step);
+    }
+
+    if (me->qsteps > me->capacity) {
+        test_fail("history struct corrupted, me->qsteps (%u) more than me->capacity (%u).", me->qsteps, me->capacity);
+    }
+
+    if (me->qsteps != TEST_QSTEPS) {
+        test_fail("history qsteps mismatch: actual %u, expected %u.", me->qsteps, TEST_QSTEPS);
+    }
+
+    for (int i=0; i<TEST_QSTEPS; ++i) {
+        enum step step = i % QSTEPS;
+        if (me->steps[i] != step) {
+            test_fail("history struct corrupted, steps[%d] = %u, but %u was written.", i, me->steps[i], step);
+        }
+    }
+
+    free_history(me);
+    return 0;
+}
+
 #endif
