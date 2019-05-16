@@ -198,6 +198,36 @@ steps_t state_get_steps(const struct state * const me)
     return me->lines[me->ball] ^ 0xFF;
 }
 
+int state_step(struct state * restrict const me, const enum step step)
+{
+    if (me->ball < 0) {
+        return NO_WAY;
+    }
+
+    const int ball = me->ball;
+    const uint8_t mask = 1 << step;
+    if (me->lines[ball] & mask) {
+        return NO_WAY;
+    }
+
+    const int32_t * const connections = me->geometry->connections;
+    const int next = connections[QSTEPS*ball + step];
+    me->ball = next;
+    if (next < 0) {
+        return next;
+    }
+
+    const int switch_active = me->lines[next] == 0;
+    me->lines[ball] |= mask;
+    me->lines[next] |= 1 << BACK(step);
+
+    if (switch_active) {
+        me->active ^= 3;
+    }
+
+    return next;
+}
+
 
 
 #ifdef MAKE_CHECK

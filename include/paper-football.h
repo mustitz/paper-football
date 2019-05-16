@@ -31,6 +31,8 @@ enum step {
     QSTEPS
 };
 
+#define BACK(step) ((enum step)((step+4) & 0x07))
+
 typedef uint32_t steps_t;
 
 static inline enum step first_step(steps_t steps)
@@ -84,5 +86,6 @@ void destroy_state(struct state * restrict const me);
 
 enum state_status state_status(const struct state * const me);
 steps_t state_get_steps(const struct state * const me);
+int state_step(struct state * restrict const me, const enum step step);
 
 #endif
