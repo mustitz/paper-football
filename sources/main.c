@@ -18,6 +18,12 @@ struct cmd_parser
 {
     struct line_parser line_parser;
     const struct keyword_tracker * tracker;
+
+    int width;
+    int height;
+    int goal_width;
+    struct geometry * geometry;
+    struct state * state;
 };
 
 
@@ -43,21 +49,74 @@ static int read_keyword(struct cmd_parser * restrict const me)
     return parser_read_keyword(lp, me->tracker);
 }
 
-
-
-int init_cmd_parser(struct cmd_parser * restrict const me)
+static void destroy_game(const struct cmd_parser * const me)
 {
-    const struct keyword_tracker * const tracker = create_keyword_tracker(keywords, KW_TRACKER__IGNORE_CASE);
-    if (tracker == NULL) {
+    if (me->geometry) {
+        destroy_geometry(me->geometry);
+    }
+
+    if (me->state) {
+        destroy_state(me->state);
+    }
+}
+
+static int new_game(
+    struct cmd_parser * restrict const me,
+    const int width,
+    const int height,
+    const int goal_width)
+{
+    struct geometry * restrict const geometry = create_std_geometry(width, height, goal_width);
+    if (geometry == NULL) {
+        return errno;
+    }
+
+    struct state * restrict const state = create_state(geometry);
+    if (state == NULL) {
+        destroy_geometry(geometry);
         return ENOMEM;
     }
-    me->tracker = tracker;
+
+    destroy_game(me);
+
+    me->width = width;
+    me->height = height;
+    me->goal_width = goal_width;
+    me->geometry = geometry;
+    me->state = state;
     return 0;
 }
 
+
+
 void free_cmd_parser(const struct cmd_parser * const me)
 {
-    destroy_keyword_tracker(me->tracker);
+    if (me->tracker) {
+        destroy_keyword_tracker(me->tracker);
+    }
+
+    destroy_game(me);
+}
+
+int init_cmd_parser(struct cmd_parser * restrict const me)
+{
+    me->tracker = NULL;
+    me->geometry = NULL;
+    me->state = NULL;
+
+    me->tracker = create_keyword_tracker(keywords, KW_TRACKER__IGNORE_CASE);
+    if (me->tracker == NULL) {
+        free_cmd_parser(me);
+        return ENOMEM;
+    }
+
+    const int status = new_game(me, 9, 11, 2);
+    if (status != 0) {
+        free_cmd_parser(me);
+        return status;
+    }
+
+    return 0;
 }
 
 
