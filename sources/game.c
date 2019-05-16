@@ -122,6 +122,54 @@ void destroy_geometry(struct geometry * restrict const me)
 
 
 
+void init_lines(
+    const struct geometry * const geometry,
+    uint8_t * restrict const lines)
+{
+    const int32_t * const connections = geometry->connections;
+    const uint32_t qpoints = geometry->qpoints;
+
+    for (int32_t point = 0; point < qpoints; ++point) {
+        uint8_t mask = 0;
+        for (enum step step=0; step<QSTEPS; ++step) {
+            int32_t next = connections[QSTEPS*point+step];
+            if (next == NO_WAY) {
+                mask |= 1 << step;
+            }
+        }
+        lines[point] = mask;
+    }
+}
+
+struct state * create_state(const struct geometry * const geometry)
+{
+    const uint32_t qpoints = geometry->qpoints;
+    const size_t sizes[2] = { sizeof(struct state), qpoints };
+    void * ptrs[2];
+    void * data = multialloc(2, sizes, ptrs, 64);
+
+    if (data == NULL) {
+        return NULL;
+    }
+
+    struct state * restrict const me = data;
+    me->geometry = geometry;
+    me->active = 1;
+    me->ball = qpoints / 2;
+    me->lines = ptrs[1];
+
+    init_lines(geometry, me->lines);
+
+    return me;
+}
+
+void destroy_state(struct state * restrict const me)
+{
+    free(me);
+}
+
+
+
 #ifdef MAKE_CHECK
 
 #include "insider.h"

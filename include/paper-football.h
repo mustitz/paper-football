@@ -46,4 +46,19 @@ struct geometry * create_std_geometry(
 
 void destroy_geometry(struct geometry * restrict const me);
 
+struct state
+{
+    const struct geometry * geometry;
+    uint8_t * lines;
+    int active;
+    int ball;
+};
+
+void init_lines(
+    const struct geometry * const geometry,
+    uint8_t * restrict const lines);
+
+struct state * create_state(const struct geometry * const geometry);
+void destroy_state(struct state * restrict const me);
+
 #endif
