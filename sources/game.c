@@ -248,6 +248,49 @@ int state_step(struct state * restrict const me, const enum step step)
 
 
 
+static int set_capacity(
+    struct history * restrict const me,
+    const unsigned int capacity)
+{
+    void * new_steps = realloc(me->steps, capacity * sizeof(enum step));
+    if (new_steps == NULL) {
+        return ENOMEM;
+    }
+
+    me->capacity = capacity;
+    me->steps = new_steps;
+    return 0;
+}
+
+void init_history(struct history * restrict const me)
+{
+    me->qsteps = 0;
+    me->capacity = 0;
+    me->steps = NULL;
+}
+
+void free_history(struct history * restrict const me)
+{
+    if (me->steps != NULL) {
+        free(me->steps);
+    }
+}
+
+int history_push(struct history * restrict const me, const enum step step)
+{
+    if (me->qsteps == me->capacity) {
+        const int status = set_capacity(me, 2 * me->capacity + 128);
+        if (status != 0) {
+            return status;
+        }
+    }
+
+    me->steps[me->qsteps++] = step;
+    return 0;
+}
+
+
+
 #ifdef MAKE_CHECK
 
 #include "insider.h"

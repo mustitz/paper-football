@@ -95,4 +95,17 @@ enum state_status state_status(const struct state * const me);
 steps_t state_get_steps(const struct state * const me);
 int state_step(struct state * restrict const me, const enum step step);
 
+
+
+struct history
+{
+    unsigned int qsteps;
+    unsigned int capacity;
+    enum step * steps;
+};
+
+void init_history(struct history * restrict const me);
+void free_history(struct history * restrict const me);
+int history_push(struct history * restrict const me, const enum step step);
+
 #endif
