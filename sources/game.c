@@ -189,6 +189,15 @@ enum state_status state_status(const struct state * const me)
     return IN_PROGRESS;
 }
 
+steps_t state_get_steps(const struct state * const me)
+{
+    if (me->ball < 0) {
+        return 0;
+    }
+
+    return me->lines[me->ball] ^ 0xFF;
+}
+
 
 
 #ifdef MAKE_CHECK

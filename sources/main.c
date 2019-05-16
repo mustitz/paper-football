@@ -7,6 +7,7 @@
 #define KW_PING             2
 #define KW_STATUS           3
 #define KW_NEW              4
+#define KW_STEP             5
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
@@ -15,7 +16,12 @@ struct keyword_desc keywords[] = {
     ITEM(PING),
     ITEM(STATUS),
     ITEM(NEW),
+    ITEM(STEP),
     { NULL, 0 }
+};
+
+const char * step_names[QSTEPS] = {
+    "NW", "N", "NE", "E", "SE", "S", "SW", "W"
 };
 
 struct cmd_parser
@@ -234,6 +240,26 @@ void process_new(struct cmd_parser * restrict const me)
     new_game(me, width, height, goal_width);
 }
 
+void process_step(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    parser_skip_spaces(lp);
+    if (parser_check_eol(lp)) {
+        steps_t steps = state_get_steps(me->state);
+        if (steps > 0) {
+            const enum step step = extract_step(&steps);
+            printf("%s", step_names[step]);
+            while (steps != 0) {
+                const enum step step = extract_step(&steps);
+                printf(" %s", step_names[step]);
+            }
+            printf("\n");
+        }
+    } else {
+        error(lp, "Not implemented yet.");
+    }
+}
+
 int process_cmd(struct cmd_parser * restrict const me, const char * const line)
 {
     struct line_parser * restrict const lp = &me->line_parser;
@@ -269,6 +295,9 @@ int process_cmd(struct cmd_parser * restrict const me, const char * const line)
             break;
         case KW_NEW:
             process_new(me);
+            break;
+        case KW_STEP:
+            process_step(me);
             break;
         default:
             error(lp, "Unexpected keyword at the begginning of the line.");

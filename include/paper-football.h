@@ -31,6 +31,20 @@ enum step {
     QSTEPS
 };
 
+typedef uint32_t steps_t;
+
+static inline enum step first_step(steps_t steps)
+{
+    return __builtin_ctz(steps);
+}
+
+static inline enum step extract_step(steps_t * mask)
+{
+    enum step result = first_step(*mask);
+    *mask &= *mask - 1;
+    return result;
+}
+
 
 
 struct geometry
@@ -69,5 +83,6 @@ struct state * create_state(const struct geometry * const geometry);
 void destroy_state(struct state * restrict const me);
 
 enum state_status state_status(const struct state * const me);
+steps_t state_get_steps(const struct state * const me);
 
 #endif
