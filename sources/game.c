@@ -168,6 +168,27 @@ void destroy_state(struct state * restrict const me)
     free(me);
 }
 
+enum state_status state_status(const struct state * const me)
+{
+    const int ball = me->ball;
+
+    if (ball == GOAL_1) {
+        return WIN_1;
+    }
+
+    if (ball == GOAL_2) {
+        return WIN_2;
+    }
+
+    const uint8_t * const lines = me->lines;
+    const int is_dead_end = ball >= 0 && lines[ball] == 0xFF;
+    if (is_dead_end) {
+        return me->active == 1 ? WIN_2 : WIN_1;
+    }
+
+    return IN_PROGRESS;
+}
+
 
 
 #ifdef MAKE_CHECK

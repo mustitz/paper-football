@@ -54,11 +54,20 @@ struct state
     int ball;
 };
 
+enum state_status
+{
+    IN_PROGRESS = 0,
+    WIN_1,
+    WIN_2
+};
+
 void init_lines(
     const struct geometry * const geometry,
     uint8_t * restrict const lines);
 
 struct state * create_state(const struct geometry * const geometry);
 void destroy_state(struct state * restrict const me);
+
+enum state_status state_status(const struct state * const me);
 
 #endif

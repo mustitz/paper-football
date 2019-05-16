@@ -5,12 +5,14 @@
 
 #define KW_QUIT             1
 #define KW_PING             2
+#define KW_STATUS           3
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
     { "exit", KW_QUIT },
     ITEM(QUIT),
     ITEM(PING),
+    ITEM(STATUS),
     { NULL, 0 }
 };
 
@@ -131,6 +133,34 @@ int process_quit(struct cmd_parser * restrict const me)
     return 1;
 }
 
+void process_status(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    if (!parser_check_eol(lp)) {
+        error(lp, "End of line expected (STATUS command is parsed), but someting was found.");
+        return;
+    }
+
+    const struct state * const state = me->state;
+    const int ball = state->ball;
+    const int active = state->active;
+
+    printf("Board width:   %4d\n", me->width);
+    printf("Board height:  %4d\n", me->height);
+    printf("Goal width:    %4d\n", me->goal_width);
+    printf("Active player: %4d\n", active);
+    if (ball >= 0) {
+        printf("Ball position: %4d, %d\n", ball % me->width, ball / me->width);
+    }
+
+    static const char * status_strs[3] = {
+        [IN_PROGRESS] = "in progress",
+        [WIN_1]       = "player 1 win",
+        [WIN_2]       = "player 2 win",
+    };
+    printf("Status:           %s\n", status_strs[state_status(state)]);
+}
+
 int process_cmd(struct cmd_parser * restrict const me, const char * const line)
 {
     struct line_parser * restrict const lp = &me->line_parser;
@@ -160,6 +190,9 @@ int process_cmd(struct cmd_parser * restrict const me, const char * const line)
             printf("pong%s", lp->current);
             fflush(stdout);
             fflush(stderr);
+            break;
+        case KW_STATUS:
+            process_status(me);
             break;
         default:
             error(lp, "Unexpected keyword at the begginning of the line.");
