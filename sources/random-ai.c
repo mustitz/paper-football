@@ -179,3 +179,80 @@ int init_random_ai(
     ai->free = free_random_ai;
     return 0;
 }
+
+
+
+#ifdef MAKE_CHECK
+
+#include "insider.h"
+
+#define BW    9
+#define BH   11
+#define GW    2
+
+int test_random_ai(void)
+{
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
+            BW, BH, GW, errno);
+    }
+
+    struct ai storage;
+    struct ai * restrict const ai = &storage;
+
+    init_random_ai(ai, geometry);
+
+    int status;
+
+    status = ai->do_step(ai, SOUTH_WEST);
+    if (status != 0) {
+        test_fail("do_step(SW) failed with status %d.", status);
+    }
+
+    enum step steps[4] = { WEST, SOUTH, SOUTH_WEST, SOUTH_WEST };
+    status = ai->do_steps(ai, 4, steps);
+    if (status != 0) {
+        test_fail("do_steps(W S SW SW) failed with status %d.", status);
+    }
+    if (ai->error != NULL) {
+        test_fail("do_steps(W S SW SW) is OK, but ai->error is set.");
+    }
+
+    steps_t possible = (1 << EAST) | (1 << SOUTH_EAST);
+    for (int i=0; i<100; ++i) {
+        enum step step = ai->go(ai, NULL);
+        steps_t mask = 1 << step;
+        if ((mask & possible) == 0) {
+            test_fail("go() tried to return impossible step %d.", step);
+        }
+    }
+
+    enum step bad_steps[2] = { SOUTH_EAST, EAST };
+    status = ai->do_steps(ai, 2, bad_steps);
+    if (status == 0) {
+        test_fail("do_steps(SE E) failture expected, but statis is 0.");
+    }
+    if (ai->error == NULL) {
+        test_fail("do_steps(SE E) failture, but ai->error is not set.");
+    }
+    if (strlen(ai->error) >= ERROR_BUF_SZ) {
+        test_fail("do_steps(SE E) failture, error message too large.");
+    }
+
+    enum step good_steps[4] = { SOUTH_EAST, NORTH_EAST, SOUTH_EAST, SOUTH_EAST };
+    status = ai->do_steps(ai, 4, good_steps);
+    if (status != 0) {
+        test_fail("do_steps(SE NE SE SE) failed with status %d.", status);
+    }
+    if (ai->error != NULL) {
+        test_fail("do_steps(SE NE SE SE) is OK, but ai->error is set.");
+    }
+
+    ai->free(ai);
+
+    destroy_geometry(geometry);
+    return 0;
+}
+
+#endif

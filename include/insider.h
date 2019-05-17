@@ -5,3 +5,4 @@ int test_parser(void);
 int test_std_geometry(void);
 int test_step(void);
 int test_history(void);
+int test_random_ai(void);

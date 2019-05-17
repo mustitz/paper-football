@@ -53,6 +53,7 @@ const struct test_item tests[] = {
     { "std-geometry", &test_std_geometry },
     { "step", &test_step },
     { "history", &test_history },
+    { "random-ai", &test_random_ai },
     { NULL, NULL }
 };
 
