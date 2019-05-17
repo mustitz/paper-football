@@ -34,6 +34,7 @@ struct cmd_parser
     int goal_width;
     struct geometry * geometry;
     struct state * state;
+    struct state * backup;
 };
 
 
@@ -68,6 +69,10 @@ static void destroy_game(const struct cmd_parser * const me)
     if (me->state) {
         destroy_state(me->state);
     }
+
+    if (me->backup) {
+        destroy_state(me->backup);
+    }
 }
 
 static int new_game(
@@ -87,6 +92,13 @@ static int new_game(
         return ENOMEM;
     }
 
+    struct state * restrict const backup = create_state(geometry);
+    if (backup == NULL) {
+        destroy_geometry(geometry);
+        destroy_state(state);
+        return ENOMEM;
+    }
+
     destroy_game(me);
 
     me->width = width;
@@ -94,7 +106,28 @@ static int new_game(
     me->goal_width = goal_width;
     me->geometry = geometry;
     me->state = state;
+    me->backup = backup;
     return 0;
+}
+
+static void restore_backup(struct cmd_parser * restrict const me)
+{
+    struct state * old_state = me->state;
+    me->state = me->backup;
+    me->backup = old_state;
+}
+
+static enum step find_step(const void * const id, size_t len)
+{
+    for (enum step step=0; step<QSTEPS; ++step) {
+        const char * const step_name = step_names[step];
+        if (strlen(step_name) == len) {
+            if (strncasecmp(step_names[step], id, len) == 0) {
+                return step;
+            }
+        }
+    }
+    return INVALID_STEP;
 }
 
 
@@ -113,6 +146,7 @@ int init_cmd_parser(struct cmd_parser * restrict const me)
     me->tracker = NULL;
     me->geometry = NULL;
     me->state = NULL;
+    me->backup = NULL;
 
     me->tracker = create_keyword_tracker(keywords, KW_TRACKER__IGNORE_CASE);
     if (me->tracker == NULL) {
@@ -256,7 +290,25 @@ void process_step(struct cmd_parser * restrict const me)
             printf("\n");
         }
     } else {
-        error(lp, "Not implemented yet.");
+        state_copy(me->backup, me->state);
+        do {
+            const int status = parser_read_id(lp);
+            if (status != 0) {
+                error(lp, "Step direction expected.");
+                return restore_backup(me);
+            }
+            enum step step = find_step(lp->lexem_start, lp->current - lp->lexem_start);
+            if (step == INVALID_STEP) {
+                error(lp, "Invalid step direction, only NW, N, NE, E, SE, S, SW are supported.");
+                return restore_backup(me);
+            }
+            const int ball = state_step(me->state, step);
+            if (ball == NO_WAY) {
+                error(lp, "Direction occupied.");
+                return restore_backup(me);
+            }
+            parser_skip_spaces(lp);
+        } while (!parser_check_eol(lp));
     }
 }
 

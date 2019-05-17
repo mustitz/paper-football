@@ -168,6 +168,24 @@ void destroy_state(struct state * restrict const me)
     free(me);
 }
 
+int state_copy(
+    struct state * restrict const dest,
+    const struct state * const src)
+{
+    if (src == dest) {
+        return 0;
+    }
+
+    if (dest->geometry != src->geometry) {
+        return EINVAL;
+    }
+
+    memcpy(dest->lines, src->lines, src->geometry->qpoints);
+    dest->active = src->active;
+    dest->ball = src->ball;
+    return 0;
+}
+
 enum state_status state_status(const struct state * const me)
 {
     const int ball = me->ball;

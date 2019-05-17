@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 void * multialloc(
     const size_t n,
@@ -30,6 +31,8 @@ enum step {
     WEST,
     QSTEPS
 };
+
+#define INVALID_STEP QSTEPS
 
 #define BACK(step) ((enum step)((step+4) & 0x07))
 
@@ -83,6 +86,10 @@ void init_lines(
 
 struct state * create_state(const struct geometry * const geometry);
 void destroy_state(struct state * restrict const me);
+
+int state_copy(
+    struct state * restrict const dest,
+    const struct state * const str);
 
 enum state_status state_status(const struct state * const me);
 steps_t state_get_steps(const struct state * const me);

@@ -23,3 +23,6 @@ status
 new width height goal_width
       Create new game with given standart geometry. “width” and “height” might be
       odd positive, “goal_width” might be even positive.
+
+step direction1 [ direction2 [ ... ] ]
+      Make one or move ball movements. Direction is one of NW N NE E SE S SW W.
