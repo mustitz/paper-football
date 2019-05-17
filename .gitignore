@@ -30,6 +30,7 @@ Makefile.in
 /include/stamp-h1
 
 /sources/paper-football
+/sources/hashes.h
 
 /validation/insider
 /validation/validation.sh

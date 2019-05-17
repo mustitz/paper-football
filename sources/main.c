@@ -1,3 +1,4 @@
+#include "hashes.h"
 #include "paper-football.h"
 #include "parser.h"
 
@@ -12,6 +13,7 @@
 #define KW_SET              7
 #define KW_AI               8
 #define KW_GO               9
+#define KW_INFO            10
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
@@ -25,6 +27,7 @@ struct keyword_desc keywords[] = {
     ITEM(SET),
     ITEM(AI),
     ITEM(GO),
+    ITEM(INFO),
     { NULL, 0 }
 };
 
@@ -35,12 +38,13 @@ const char * step_names[QSTEPS] = {
 struct ai_desc
 {
     const char * name;
+    const char * sha512;
     int (*init_ai)(struct ai * restrict const ai, const struct geometry * const geometry);
 };
 
 struct ai_desc ai_list[] = {
-    { "random", &init_random_ai },
-    { NULL, NULL }
+    { "random", RANDOM_AI_HASH, &init_random_ai },
+    { NULL, NULL, NULL }
 };
 
 struct cmd_parser
@@ -58,6 +62,7 @@ struct cmd_parser
     struct history history;
 
     struct ai * ai;
+    const struct ai_desc * ai_desc;
     struct ai ai_storage;
 };
 
@@ -104,6 +109,7 @@ static void free_ai(struct cmd_parser * restrict const me)
     if (me->ai) {
         me->ai->free(me->ai);
         me->ai = NULL;
+        me->ai_desc = NULL;
     }
 }
 
@@ -205,6 +211,7 @@ static void set_ai(
 
     me->ai_storage = storage;
     me->ai = &me->ai_storage;
+    me->ai_desc = ai_desc;
 }
 
 static struct ai * get_ai(struct cmd_parser * restrict const me)
@@ -299,6 +306,17 @@ static void ai_go(struct cmd_parser * restrict const me)
             return;
         }
     }
+}
+
+static void ai_info(struct cmd_parser * restrict const me)
+{
+    get_ai(me);
+    if (me->ai_desc == NULL) {
+        return;
+    }
+
+    printf("%12s\t%12s\n", "name", me->ai_desc->name);
+    printf("%12s\t%12.12s\n", "hash", me->ai_desc->sha512);
 }
 
 
@@ -600,6 +618,17 @@ void process_ai_go(struct cmd_parser * restrict const me)
     ai_go(me);
 }
 
+void process_ai_info(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    if (!parser_check_eol(lp)) {
+        error(lp, "End of line expected (AI INFO command is parsed), but someting was found.");
+        return;
+    }
+
+    ai_info(me);
+}
+
 void process_ai(struct cmd_parser * restrict const me)
 {
     struct line_parser * restrict const lp = &me->line_parser;
@@ -613,6 +642,8 @@ void process_ai(struct cmd_parser * restrict const me)
     switch (keyword) {
         case KW_GO:
             return process_ai_go(me);
+        case KW_INFO:
+            return process_ai_info(me);
     }
 
     error(lp, "Invalid action in AI command.");

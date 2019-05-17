@@ -36,3 +36,6 @@ set ai [name]
 
 ai go
       AI makes next move (one or few steps if needed).
+
+ai info
+      Print AI parameters.
