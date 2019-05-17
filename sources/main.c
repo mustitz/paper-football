@@ -11,6 +11,7 @@
 #define KW_HISTORY          6
 #define KW_SET              7
 #define KW_AI               8
+#define KW_GO               9
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
@@ -23,6 +24,7 @@ struct keyword_desc keywords[] = {
     ITEM(HISTORY),
     ITEM(SET),
     ITEM(AI),
+    ITEM(GO),
     { NULL, 0 }
 };
 
@@ -203,6 +205,100 @@ static void set_ai(
 
     me->ai_storage = storage;
     me->ai = &me->ai_storage;
+}
+
+static struct ai * get_ai(struct cmd_parser * restrict const me)
+{
+    if (me->ai) {
+        return me->ai;
+    }
+
+    set_ai(me, ai_list);
+    return me->ai;
+}
+
+static void restore_ai(
+    struct cmd_parser * restrict const me,
+    const unsigned int history_qsteps)
+{
+    int status;
+    struct ai * restrict const ai = me->ai;
+    restore_backup(me, history_qsteps);
+
+    status = ai->reset(ai, me->geometry);
+    if (status != 0) {
+        fprintf(stderr, "Cannot reset AI, AI turned off.\n");
+        free_ai(me);
+        return;
+    }
+
+    status = ai->do_steps(ai, me->history.qsteps, me->history.steps);
+    if (status != 0) {
+        fprintf(stderr, "Cannot apply history to AI, AI turned off.\n");
+        free_ai(me);
+        return;
+    }
+}
+
+static void ai_go(struct cmd_parser * restrict const me)
+{
+    if (state_status(me->state) != IN_PROGRESS) {
+        fprintf(stderr, "Game over, no moves possible.\n");
+        return;
+    }
+
+    struct ai * restrict const ai = get_ai(me);
+    struct state * restrict const state = me->state;
+    const int active = state->active;
+
+    enum step step = ai->go(ai, NULL);
+    if (step == INVALID_STEP) {
+        fprintf(stderr, "AI move: invalid step.\n");
+        return;
+    }
+
+    state_copy(me->backup, state);
+    const unsigned int history_qsteps = me->history.qsteps;
+
+    const char * separator = "";
+    for (;;) {
+        const int ball = state_step(state, step);
+        if (ball == NO_WAY) {
+            printf("\n");
+            fprintf(stderr, "ai_go: game state cannot follow step %s.\n", step_names[step]);
+            restore_ai(me, history_qsteps);
+            return;
+        }
+
+        const int status = me->ai->do_step(me->ai, step);
+        if (status != 0) {
+            printf("\n");
+            fprintf(stderr, "ai_go: AI cannot follow himself on step %s.\n", step_names[step]);
+            restore_ai(me, history_qsteps);
+            return;
+        }
+
+        printf("%s%s", separator, step_names[step]);
+        separator = " ";
+
+        const int is_done = 0
+            || state_status(state) != IN_PROGRESS
+            || state->active != active
+        ;
+
+        if (is_done) {
+            printf("\n");
+            return;
+        }
+
+        step = ai->go(ai, NULL);
+        if (step == INVALID_STEP) {
+            printf("\n");
+            fprintf(stderr, "AI move: invalid step.\n");
+            restore_ai(me, history_qsteps);
+            return;
+        }
+    }
 }
 
 
@@ -493,6 +589,34 @@ void process_set(struct cmd_parser * restrict const me)
     error(lp, "Invalid option name in SET command.");
 }
 
+void process_ai_go(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    if (!parser_check_eol(lp)) {
+        error(lp, "End of line expected (AI GO command is parsed), but someting was found.");
+        return;
+    }
+
+    ai_go(me);
+}
+
+void process_ai(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    const int keyword = read_keyword(me);
+
+    if (keyword == -1) {
+        error(lp, "Invalid lexem in AI command.");
+        return;
+    }
+
+    switch (keyword) {
+        case KW_GO:
+            return process_ai_go(me);
+    }
+
+    error(lp, "Invalid action in AI command.");
+}
 
 int process_cmd(struct cmd_parser * restrict const me, const char * const line)
 {
@@ -538,6 +662,9 @@ int process_cmd(struct cmd_parser * restrict const me, const char * const line)
             break;
         case KW_SET:
             process_set(me);
+            break;
+        case KW_AI:
+            process_ai(me);
             break;
         default:
             error(lp, "Unexpected keyword at the begginning of the line.");

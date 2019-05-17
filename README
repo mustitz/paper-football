@@ -33,3 +33,6 @@ history
 set ai [name]
       Print all possible AIs if “name” is not set.
       Set AI with “name” as current engine overwise.
+
+ai go
+      AI makes next move (one or few steps if needed).
