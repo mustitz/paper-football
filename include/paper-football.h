@@ -108,4 +108,42 @@ void init_history(struct history * restrict const me);
 void free_history(struct history * restrict const me);
 int history_push(struct history * restrict const me, const enum step step);
 
+
+
+struct step_stat
+{
+    int possible;
+    int32_t qgames;
+    int32_t score;
+};
+
+struct ai
+{
+    void * data;
+    const char * error;
+
+    int (*reset)(
+        struct ai * restrict const ai,
+        const struct geometry * const geometry);
+
+    int (*do_step)(
+        struct ai * restrict const ai,
+        const enum step step);
+
+    int (*do_steps)(
+        struct ai * restrict const ai,
+        const unsigned int qsteps,
+        const enum step steps[]);
+
+    enum step (*go)(
+        struct ai * restrict const ai,
+        struct step_stat * restrict const stats);
+
+    void (*free)(struct ai * restrict const ai);
+};
+
+int init_random_ai(
+    struct ai * restrict const ai,
+    const struct geometry * const geometry);
+
 #endif

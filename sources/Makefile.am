@@ -11,4 +11,4 @@ endif
 
 
 paper_football_CFLAGS = $(EXTRA_CFLAGS)
-paper_football_SOURCES = main.c game.c parser.c utils.c
+paper_football_SOURCES = main.c game.c random-ai.c parser.c utils.c
