@@ -9,6 +9,8 @@
 #define KW_NEW              4
 #define KW_STEP             5
 #define KW_HISTORY          6
+#define KW_SET              7
+#define KW_AI               8
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
@@ -19,11 +21,24 @@ struct keyword_desc keywords[] = {
     ITEM(NEW),
     ITEM(STEP),
     ITEM(HISTORY),
+    ITEM(SET),
+    ITEM(AI),
     { NULL, 0 }
 };
 
 const char * step_names[QSTEPS] = {
     "NW", "N", "NE", "E", "SE", "S", "SW", "W"
+};
+
+struct ai_desc
+{
+    const char * name;
+    int (*init_ai)(struct ai * restrict const ai, const struct geometry * const geometry);
+};
+
+struct ai_desc ai_list[] = {
+    { "random", &init_random_ai },
+    { NULL, NULL }
 };
 
 struct cmd_parser
@@ -39,6 +54,9 @@ struct cmd_parser
     struct state * backup;
 
     struct history history;
+
+    struct ai * ai;
+    struct ai ai_storage;
 };
 
 
@@ -79,6 +97,14 @@ static void destroy_game(const struct cmd_parser * const me)
     }
 }
 
+static void free_ai(struct cmd_parser * restrict const me)
+{
+    if (me->ai) {
+        me->ai->free(me->ai);
+        me->ai = NULL;
+    }
+}
+
 static int new_game(
     struct cmd_parser * restrict const me,
     const int width,
@@ -101,6 +127,16 @@ static int new_game(
         destroy_geometry(geometry);
         destroy_state(state);
         return ENOMEM;
+    }
+
+    if (me->ai) {
+        const int status = me->ai->reset(me->ai, geometry);
+        if (status != 0) {
+            destroy_geometry(geometry);
+            destroy_state(state);
+            destroy_state(backup);
+            return status;
+        }
     }
 
     destroy_game(me);
@@ -139,6 +175,36 @@ static enum step find_step(const void * const id, size_t len)
     return INVALID_STEP;
 }
 
+static void set_ai(
+    struct cmd_parser * restrict const me,
+    const struct ai_desc * const ai_desc)
+{
+    int status;
+    struct ai storage;
+
+    status = ai_desc->init_ai(&storage, me->geometry);
+    if (status != 0) {
+        fprintf(stderr, "Cannot set AI: init failed with code %d.\n", status);
+        return;
+    }
+
+    if (me->history.qsteps > 0) {
+        status = storage.do_steps(&storage, me->history.qsteps, me->history.steps);
+        if (status != 0) {
+            fprintf(stderr, "Cannot set AI: cannot apply history, status = %d.\n", status);
+            storage.free(&storage);
+            return;
+        }
+    }
+
+    if (me->ai) {
+        me->ai->free(me->ai);
+    }
+
+    me->ai_storage = storage;
+    me->ai = &me->ai_storage;
+}
+
 
 
 void free_cmd_parser(struct cmd_parser * restrict const me)
@@ -148,6 +214,7 @@ void free_cmd_parser(struct cmd_parser * restrict const me)
     }
 
     destroy_game(me);
+    free_ai(me);
 
     free_history(&me->history);
 }
@@ -158,6 +225,7 @@ int init_cmd_parser(struct cmd_parser * restrict const me)
     me->geometry = NULL;
     me->state = NULL;
     me->backup = NULL;
+    me->ai = NULL;
 
     me->tracker = create_keyword_tracker(keywords, KW_TRACKER__IGNORE_CASE);
     if (me->tracker == NULL) {
@@ -172,6 +240,7 @@ int init_cmd_parser(struct cmd_parser * restrict const me)
     }
 
     init_history(&me->history);
+
     return 0;
 }
 
@@ -331,6 +400,16 @@ void process_step(struct cmd_parser * restrict const me)
 
             parser_skip_spaces(lp);
         } while (!parser_check_eol(lp));
+
+        if (me->ai) {
+            const int qnew_steps = me->history.qsteps - history_qsteps;
+            const enum step * const new_steps = me->history.steps + history_qsteps;
+            const int status = me->ai->do_steps(me->ai, qnew_steps, new_steps);
+            if (status != 0) {
+                error(lp, "AI applying step sequence failed with code %d.", status);
+                return restore_backup(me, history_qsteps);
+            }
+        }
     }
 }
 
@@ -354,6 +433,66 @@ void process_history(struct cmd_parser * restrict const me)
     }
     printf("\n");
 }
+
+void process_set_ai(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    parser_skip_spaces(lp);
+
+    if (parser_check_eol(lp)) {
+        const struct ai_desc * restrict ptr = ai_list;
+        for (; ptr->name; ++ptr) {
+            printf("%s\n", ptr->name);
+        }
+        return;
+    }
+
+    const unsigned char * const ai_name = lp->current;
+    const int status = parser_read_id(lp);
+    if (status != 0) {
+        error(lp, "Invalid AI name, valid identifier expected.");
+        return;
+    }
+    const size_t len = lp->current - ai_name;
+
+    if (!parser_check_eol(lp)) {
+        error(lp, "End of line expected but something was found in SET AI command.");
+        return;
+    }
+
+    const struct ai_desc * restrict ptr = ai_list;
+    for (; ptr->name; ++ptr) {
+        const int match = 1
+            && strlen(ptr->name) == len
+            && strncasecmp(ptr->name, (const char *)ai_name, len) == 0
+        ;
+
+        if (match) {
+            return set_ai(me, ptr);
+        }
+    }
+
+    error(lp, "AI not found.");
+}
+
+void process_set(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    const int keyword = read_keyword(me);
+
+    if (keyword == -1) {
+        error(lp, "Invalid lexem in SET command.");
+        return;
+    }
+
+    switch (keyword) {
+        case KW_AI:
+            return process_set_ai(me);
+    }
+
+    error(lp, "Invalid option name in SET command.");
+}
+
 
 int process_cmd(struct cmd_parser * restrict const me, const char * const line)
 {
@@ -396,6 +535,9 @@ int process_cmd(struct cmd_parser * restrict const me, const char * const line)
             break;
         case KW_HISTORY:
             process_history(me);
+            break;
+        case KW_SET:
+            process_set(me);
             break;
         default:
             error(lp, "Unexpected keyword at the begginning of the line.");

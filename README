@@ -29,3 +29,7 @@ step direction1 [ direction2 [ ... ] ]
 
 history
       Print game history. It may be useful to implement save/load game functionality.
+
+set ai [name]
+      Print all possible AIs if “name” is not set.
+      Set AI with “name” as current engine overwise.
