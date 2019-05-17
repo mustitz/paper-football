@@ -11,6 +11,8 @@ struct random_ai
     char * error_buf;
 };
 
+static const struct ai_param terminator = { NULL, NULL, NO_TYPE, 0 };
+
 struct random_ai * create_random_ai(const struct geometry * const geometry)
 {
     const uint32_t qpoints = geometry->qpoints;
@@ -160,6 +162,19 @@ enum step random_ai_go(
     return alternatives[choice];
 }
 
+const struct ai_param * random_ai_get_params(const struct ai * const ai)
+{
+    return &terminator;
+}
+
+int random_ai_set_param(
+    struct ai * restrict const ai,
+    const char * const name,
+    const void * const value)
+{
+    return EINVAL;
+}
+
 int init_random_ai(
     struct ai * restrict const ai,
     const struct geometry * const geometry)
@@ -176,6 +191,8 @@ int init_random_ai(
     ai->do_step = random_ai_do_step;
     ai->do_steps = random_ai_do_steps;
     ai->go = random_ai_go;
+    ai->get_params = random_ai_get_params;
+    ai->set_param = random_ai_set_param;
     ai->free = free_random_ai;
     return 0;
 }

@@ -117,6 +117,25 @@ struct step_stat
     int32_t score;
 };
 
+enum param_type
+{
+    NO_TYPE=0,
+    I32,
+    U32,
+    F32,
+    QPARAM_TYPES
+};
+
+extern size_t param_sizes[QPARAM_TYPES];
+
+struct ai_param
+{
+    const char * name;
+    const void * value;
+    enum param_type type;
+    size_t offset;
+};
+
 struct ai
 {
     void * data;
@@ -138,6 +157,13 @@ struct ai
     enum step (*go)(
         struct ai * restrict const ai,
         struct step_stat * restrict const stats);
+
+    const struct ai_param * (*get_params)(const struct ai * const ai);
+
+    int (*set_param)(
+        struct ai * restrict const ai,
+        const char * const name,
+        const void * const value);
 
     void (*free)(struct ai * restrict const ai);
 };

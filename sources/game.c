@@ -1,5 +1,11 @@
 #include "paper-football.h"
 
+size_t param_sizes[QPARAM_TYPES] = {
+    [U32] = sizeof(uint32_t),
+    [I32] = sizeof(int32_t),
+    [F32] = sizeof(float),
+};
+
 static inline int check_dim(const int value)
 {
     if (value <= 4) {

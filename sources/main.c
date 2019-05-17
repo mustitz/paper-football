@@ -318,6 +318,23 @@ static void ai_info(struct cmd_parser * restrict const me)
 
     printf("%12s\t%12s\n", "name", me->ai_desc->name);
     printf("%12s\t%12.12s\n", "hash", me->ai_desc->sha512);
+
+    const struct ai_param * ptr = me->ai->get_params(me->ai);
+    for (; ptr->name != NULL; ++ptr) {
+        switch (ptr->type) {
+            case I32:
+                printf("%12s\t%12d\n", ptr->name, *(int32_t*)ptr->value);
+                break;
+            case U32:
+                printf("%12s\t%12u\n", ptr->name, *(uint32_t*)ptr->value);
+                break;
+            case F32:
+                printf("%12s\t%12f\n", ptr->name, *(float*)ptr->value);
+                break;
+            default:
+                break;
+        }
+    }
 }
 
 

@@ -4,12 +4,65 @@
 
 #define ERROR_BUF_SZ   256
 
+#define QPARAMS   4
+
+static const uint32_t     def_cache = 2 * 1024 * 1024;
+static const uint32_t    def_qthink =     1024 * 1024;
+static const uint32_t def_max_depth =             128;
+static const  float           def_C =             1.4;
+
 struct mcts_ai
 {
     struct state * state;
     struct state * backup;
     char * error_buf;
+    struct ai_param params[QPARAMS+1];
+
+    uint32_t cache;
+    uint32_t qthink;
+    uint32_t max_depth;
+    float    C;
 };
+
+#define OFFSET(name) offsetof(struct mcts_ai, name)
+static struct ai_param def_params[QPARAMS+1] = {
+    {     "cache",     &def_cache, U32, OFFSET(cache) },
+    {    "qthink",    &def_qthink, U32, OFFSET(qthink) },
+    { "max_depth", &def_max_depth, U32, OFFSET(max_depth) },
+    {         "C",         &def_C, F32, OFFSET(C) },
+    { NULL, NULL, NO_TYPE, 0 }
+};
+
+static void * move_ptr(void * ptr, size_t offset)
+{
+    char * restrict const base = ptr;
+    return base + offset;
+}
+
+static int set_param(
+    struct mcts_ai * restrict const me,
+    const struct ai_param * const param,
+    const void * const value)
+{
+    const size_t sz = param_sizes[param->type];
+    if (sz == 0) {
+        return EINVAL;
+    }
+
+    void * restrict const ptr = move_ptr(me, param->offset);
+    memcpy(ptr, value, sz);
+    return 0;
+}
+
+static void init_param(
+    struct mcts_ai * restrict const me,
+    const int index)
+{
+    const struct ai_param * const def_param = def_params + index;
+    struct ai_param * restrict const param = me->params + index;
+    param->value = move_ptr(me, param->offset);
+    set_param(me, param, def_param->value);
+}
 
 static void free_ai(struct mcts_ai * restrict const me)
 {
@@ -46,6 +99,11 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     me->backup = backup;
     me->error_buf = error_buf;
 
+    memcpy(me->params, def_params, sizeof(me->params));
+    for (int i=0; i<QPARAMS; ++i) {
+        init_param(me, i);
+    }
+
     state->geometry = geometry;
     state->lines = lines;
     state->active = 1;
@@ -74,6 +132,17 @@ int mcts_ai_reset(
         snprintf(me->error_buf, ERROR_BUF_SZ, "Bad alloc for create_mcts_ai.");
         ai->error = me->error_buf;
         return errno;
+    }
+
+    const struct ai_param * ptr = ai->get_params(ai);
+    for (; ptr->name != NULL; ++ptr) {
+        const int status = set_param(me, ptr, ptr->value);
+        if (status != 0) {
+            snprintf(me->error_buf, ERROR_BUF_SZ, "Cannot set parameter %s for new instance, status is %d.", ptr->name, status);
+            ai->error = me->error_buf;
+            free_ai(me);
+            return status;
+        }
     }
 
     free_ai(ai->data);
@@ -147,6 +216,41 @@ enum step mcts_ai_go(
     return first_step(steps);
 }
 
+const struct ai_param * mcts_ai_get_params(const struct ai * const ai)
+{
+    struct mcts_ai * restrict const me = ai->data;
+    return me->params;
+}
+
+static const struct ai_param * find_param(
+    struct mcts_ai * restrict const me,
+    const char * const name)
+{
+    for (int i=0; i<QPARAMS; ++i) {
+        const struct ai_param * const param = me->params + i;
+        if (strcasecmp(name, param->name) == 0) {
+            return param;
+        }
+    }
+
+    return NULL;
+}
+
+int mcts_ai_set_param(
+    struct ai * restrict const ai,
+    const char * const name,
+    const void * const value)
+{
+    struct mcts_ai * restrict const me = ai->data;
+    const struct ai_param * const param = find_param(me, name);
+    if (param == NULL) {
+        return EINVAL;
+    }
+
+    set_param(me, param, value);
+    return 0;
+}
+
 int init_mcts_ai(
     struct ai * restrict const ai,
     const struct geometry * const geometry)
@@ -163,6 +267,8 @@ int init_mcts_ai(
     ai->do_step = mcts_ai_do_step;
     ai->do_steps = mcts_ai_do_steps;
     ai->go = mcts_ai_go;
+    ai->get_params = mcts_ai_get_params;
+    ai->set_param = mcts_ai_set_param;
     ai->free = free_mcts_ai;
     return 0;
 }
