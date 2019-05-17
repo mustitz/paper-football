@@ -43,6 +43,7 @@ struct ai_desc
 };
 
 struct ai_desc ai_list[] = {
+    {   "mcts",   MCTS_AI_HASH,   &init_mcts_ai },
     { "random", RANDOM_AI_HASH, &init_random_ai },
     { NULL, NULL, NULL }
 };
