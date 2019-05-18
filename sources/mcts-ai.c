@@ -524,4 +524,68 @@ int test_rollout(void)
     return 0;
 }
 
+#define ALLOCATED_NODES    32
+
+int test_node_cache(void)
+{
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
+            BW, BH, GW, errno);
+    }
+
+    struct ai storage;
+    struct ai * restrict const ai = &storage;
+    init_mcts_ai(ai, geometry);
+
+    const uint32_t cache = ALLOCATED_NODES * sizeof(struct node);
+    const int status = ai->set_param(ai, "cache", &cache);
+    if (status != 0) {
+        test_fail("ai->set_param fails with code %d, %s.", status, ai->error);
+    }
+
+    struct mcts_ai * restrict const me = ai->data;
+
+    for (int j=0; j<3; ++j) {
+        init_cache(me);
+        for (unsigned int i=0; i<ALLOCATED_NODES; ++i) {
+            struct node * restrict const node = alloc_node(me);
+            if (node == NULL) {
+                test_fail("%d alloc node fails, NULL is returned.", i);
+            }
+
+            if (me->good_node_alloc != i+1) {
+                test_fail("good_node_alloc mismatch, actual %u, expected %u.", me->good_node_alloc, i+1);
+            }
+
+            if (me->bad_node_alloc != 0) {
+                test_fail("bad_node_alloc mismatch, actual %u, expected %u.", me->bad_node_alloc, 0);
+            }
+        }
+
+        for (unsigned int i=0; i<ALLOCATED_NODES/2; ++i) {
+            struct node * restrict const node = alloc_node(me);
+            if (node != NULL) {
+                test_fail("%d alloc, failture expected, but node is allocated.", i);
+            }
+
+            if (me->good_node_alloc != ALLOCATED_NODES) {
+                test_fail("good_node_alloc mismatch, actual %u, expected %u.", me->good_node_alloc, ALLOCATED_NODES);
+            }
+
+            if (me->bad_node_alloc != i+1) {
+                test_fail("bad_node_alloc mismatch, actual %u, expected %u.", me->bad_node_alloc, i+1);
+            }
+        }
+
+        if (j == 1) {
+            free_cache(me);
+        }
+    }
+
+    ai->free(ai);
+    destroy_geometry(geometry);
+    return 0;
+}
+
 #endif

@@ -7,3 +7,4 @@ int test_step(void);
 int test_history(void);
 int test_random_ai(void);
 int test_rollout(void);
+int test_node_cache(void);
