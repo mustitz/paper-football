@@ -57,6 +57,7 @@ const struct test_item tests[] = {
     { "rollout", &test_rollout },
     { "node-cache", &test_node_cache },
     { "mcts-history", &test_mcts_history },
+    { "ucb-formula", &test_ucb_formula },
     { NULL, NULL }
 };
 

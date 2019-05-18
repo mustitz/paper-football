@@ -9,3 +9,4 @@ int test_random_ai(void);
 int test_rollout(void);
 int test_node_cache(void);
 int test_mcts_history(void);
+int test_ucb_formula(void);

@@ -744,4 +744,87 @@ int test_mcts_history(void)
     return 0;
 }
 
+int test_ucb_formula(void)
+{
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
+            BW, BH, GW, errno);
+    }
+
+    struct ai storage;
+    struct ai * restrict const ai = &storage;
+    init_mcts_ai(ai, geometry);
+    const uint32_t cache = 1024 * sizeof(struct node);
+    const int status = ai->set_param(ai, "cache", &cache);
+    if (status != 0) {
+        test_fail("ai->set_param fails with code %d, %s.", status, ai->error);
+    }
+
+    struct mcts_ai * restrict const me = ai->data;
+    init_cache(me);
+
+    struct node node;
+    node.qgames = 10;
+    node.score = 0;
+
+    node.children[NORTH] = 1; /*       1.55985508 */
+    node.children[EAST]  = 2; /* BEST  1.56219899 */
+    node.children[SOUTH] = 3; /*       1.55005966 */
+    node.children[WEST]  = 4; /*       1.53394851 */
+
+    me->C = 1.4;
+
+    me->nodes[1].qgames = 3;
+    me->nodes[2].qgames = 4;
+    me->nodes[3].qgames = 5;
+    me->nodes[4].qgames = 6;
+
+    me->nodes[1].score = 1;
+    me->nodes[2].score = 2;
+    me->nodes[3].score = 3;
+    me->nodes[4].score = 4;
+
+    steps_t steps = (1 << NORTH) | (1 << EAST) | (1 << SOUTH) | (1 << WEST);
+    const enum step choice = select_step(me, &node, steps);
+
+    if (choice != EAST) {
+        test_fail("Unexpected choice %d, expected EAST (%d).", choice, EAST);
+    }
+
+    struct node * restrict const root = alloc_node(me);
+    if (root == NULL) {
+        test_fail("alloc_node failed with NULL as a return value for root node.");
+    }
+    root->qgames = 1;
+
+    for (enum step step=0; step<QSTEPS; ++step) {
+        struct node * restrict const child = alloc_node(me);
+        if (child == NULL) {
+            test_fail("alloc_node failed with NULL as a return value for child node on step %d.", step);
+        }
+        child->qgames = 1;
+        child->score = 2;
+        root->children[step] = child - me->nodes;
+    }
+
+    steps_t visited = 0;
+    for (enum step step=0; step<QSTEPS; ++step) {
+        const enum step choice = select_step(me, root, 0xFF);
+        visited |= 1 << choice;
+        struct node * restrict const child = me->nodes + root->children[choice];
+        child->qgames = 1;
+        child->score = (rand() % 3) - 1;
+        ++root->qgames;
+    }
+
+    if (visited != 0xFF) {
+        test_fail("Some directions are visitied twice, visited mask is 0x%02X.", visited);
+    }
+
+    ai->free(ai);
+    destroy_geometry(geometry);
+    return 0;
+}
+
 #endif
