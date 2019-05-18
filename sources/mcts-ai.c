@@ -397,7 +397,7 @@ static void init_magic_steps(void)
     }
 }
 
-struct node * alloc_node(struct mcts_ai * restrict const me)
+static struct node * alloc_node(struct mcts_ai * restrict const me)
 {
     if (me->used_nodes >= me->total_nodes) {
         ++me->bad_node_alloc;
@@ -411,7 +411,7 @@ struct node * alloc_node(struct mcts_ai * restrict const me)
     return result;
 }
 
-int rollout(
+static int rollout(
     struct state * restrict const state,
     uint32_t max_steps,
     uint32_t * qthink)
@@ -466,7 +466,7 @@ int rollout(
     }
 }
 
-void update_history(
+static void update_history(
     struct mcts_ai * restrict const me,
     const int32_t score)
 {
@@ -484,7 +484,7 @@ void update_history(
     }
 }
 
-void add_history(
+static void add_history(
     struct mcts_ai * restrict const me,
     struct node * restrict const node,
     const int active)
@@ -512,7 +512,7 @@ void add_history(
     ++me->hist_ptr;
 }
 
-enum step select_step(
+static enum step select_step(
     const struct mcts_ai * const me,
     const struct node * const node,
     steps_t steps)
@@ -550,6 +550,85 @@ enum step select_step(
     const int index = qbest == 1 ? 0 : rand() % qbest;
     const enum step choice = best_steps[index];
     return choice;
+}
+
+uint32_t simulate(
+    struct mcts_ai * restrict const me,
+    struct node * restrict node)
+{
+    struct state * restrict const state = me->backup;
+    state_copy(state, me->state);
+    const int32_t * const connections = state->geometry->connections;
+
+    int active = state->active;
+    int ball = state->ball;
+    uint8_t * restrict const lines = state->lines;
+
+    if (ball == GOAL_1) {
+        return 1;
+    }
+
+    if (ball == GOAL_2) {
+        return 1;
+    }
+
+    uint32_t qthink = 1;
+    me->hist_ptr = me->hist;
+
+    for (;;) {
+        const steps_t answers = lines[ball] ^ 0xFF;
+        if (answers == 0) {
+            update_history(me, active != 1 ? +1 : -1);
+            return qthink;
+        }
+
+        const enum step step = select_step(me, node, answers);
+        ++qthink;
+
+        uint32_t ichild = node->children[step];
+        if (ichild == 0) {
+            struct node * restrict const child = alloc_node(me);
+            if (child == NULL) {
+                return 0;
+            }
+            node->children[step] = child - me->nodes;
+            node = child;
+        } else {
+            node = me->nodes + ichild;
+        }
+
+        add_history(me, node, active);
+
+        const int next = connections[ball*QSTEPS + step];
+
+        if (next == GOAL_1) {
+            update_history(me, +1);
+            return qthink;
+        }
+
+        if (next == GOAL_2) {
+            update_history(me, -1);
+            return qthink;
+        }
+
+        if (lines[next] == 0) {
+            active ^= 3;
+        }
+
+        lines[ball] |= (1 << step);
+        lines[next] |= (1 << BACK(step));
+        ball = next;
+
+        if (ichild == 0) {
+            break;
+        }
+    }
+
+    state->ball = ball;
+    state->active = active;
+    const int32_t score = rollout(state, me->max_depth, &qthink);
+    update_history(me, score);
+    return qthink;
 }
 
 static enum step ai_go(
