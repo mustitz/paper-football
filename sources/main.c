@@ -171,17 +171,89 @@ static void restore_backup(
     me->history.qsteps = history_qsteps;
 }
 
-static enum step find_step(const void * const id, size_t len)
+static int is_match(
+    const char * const name,
+    const void * const id,
+    const size_t id_len)
+{
+    if (strncmp(name, id, id_len) != 0) {
+        return 0;
+    }
+    return name[id_len] == '\0';
+}
+
+static enum step find_step(const void * const id, const size_t len)
 {
     for (enum step step=0; step<QSTEPS; ++step) {
         const char * const step_name = step_names[step];
-        if (strlen(step_name) == len) {
-            if (strncasecmp(step_names[step], id, len) == 0) {
-                return step;
-            }
+        if (is_match(step_name, id, len)) {
+            return step;
         }
     }
     return INVALID_STEP;
+}
+
+static const struct ai_param * find_ai_param(
+    const struct ai * const ai,
+    const void  * const id,
+    const size_t id_len)
+{
+    const struct ai_param * ptr = ai->get_params(ai);
+    for (; ptr->name != NULL; ++ptr) {
+        if (is_match(ptr->name, id, id_len)) {
+            return ptr;
+        }
+    }
+
+    return NULL;
+}
+
+static int read_value(
+    struct line_parser * restrict const lp,
+    void * const buf,
+    const int type)
+{
+    const size_t value_sz = param_sizes[type];
+    if (value_sz == 0) {
+        error(lp, "Parameter cannot be set.");
+        return EINVAL;
+    }
+
+    if (type == I32 || type == U32) {
+        int value;
+        const unsigned char * const lexem = lp->current;
+        const int status = parser_read_last_int(lp, &value);
+        if (status != 0) {
+            error(lp, "Single integer parameter value expected.");
+            return EINVAL;
+        }
+
+        if (type == I32) {
+            *(int32_t*)buf = value;
+        }
+
+        if (type == U32) {
+            if (value < 0) {
+                lp->lexem_start = lexem;
+                error(lp, "Parameter value might be positive.");
+                return EINVAL;
+            }
+            *(uint32_t*)buf = (uint32_t)value;
+        }
+    }
+
+    if (type == F32) {
+        float value;
+        const int status = parser_read_float(lp, &value);
+        if (status != 0) {
+            error(lp, "Single float parameter expected.");
+            return EINVAL;
+        }
+
+        *(float*)buf = value;
+    }
+
+    return 0;
 }
 
 static void set_ai(
@@ -566,6 +638,46 @@ void process_history(struct cmd_parser * restrict const me)
     printf("\n");
 }
 
+void process_set_ai_param(struct cmd_parser * restrict const me)
+{
+    int status;
+    struct line_parser * restrict const lp = &me->line_parser;
+    parser_skip_spaces(lp);
+
+    status = parser_read_id(lp);
+    if (status != 0) {
+        error(lp, "AI parameter name expected.");
+        return;
+    }
+
+    const size_t id_len = lp->current - lp->lexem_start;
+    struct ai * restrict const ai = get_ai(me);
+    if (ai == NULL) {
+        return;
+    }
+
+    const struct ai_param * const param = find_ai_param(ai, lp->lexem_start, id_len);
+    if (param == NULL) {
+        error(lp, "Param is not found.");
+        return;
+    }
+
+    parser_skip_spaces(lp);
+    if (*lp->current == '=') {
+        ++lp->current;
+        parser_skip_spaces(lp);
+    }
+
+    const size_t value_sz = param_sizes[param->type];
+    char buf[value_sz];
+    status = read_value(lp, buf, param->type);
+    if (status != 0) {
+        return;
+    }
+
+    ai->set_param(ai, param->name, buf);
+}
+
 void process_set_ai(struct cmd_parser * restrict const me)
 {
     struct line_parser * restrict const lp = &me->line_parser;
@@ -577,6 +689,11 @@ void process_set_ai(struct cmd_parser * restrict const me)
             printf("%s\n", ptr->name);
         }
         return;
+    }
+
+    if (*lp->current == '.') {
+        ++lp->current;
+        return process_set_ai_param(me);
     }
 
     const unsigned char * const ai_name = lp->current;

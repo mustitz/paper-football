@@ -34,6 +34,9 @@ set ai [name]
       Print all possible AIs if “name” is not set.
       Set AI with “name” as current engine overwise.
 
+set ai.name [=] value
+      Set AI parameter to specified value.
+
 ai go
       AI makes next move (one or few steps if needed).
 
