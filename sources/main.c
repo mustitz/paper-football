@@ -675,7 +675,10 @@ void process_set_ai_param(struct cmd_parser * restrict const me)
         return;
     }
 
-    ai->set_param(ai, param->name, buf);
+    status = ai->set_param(ai, param->name, buf);
+    if (status != 0) {
+        fprintf(stderr, "%s\n", ai->error);
+    }
 }
 
 void process_set_ai(struct cmd_parser * restrict const me)

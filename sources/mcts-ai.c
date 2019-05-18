@@ -22,6 +22,19 @@ struct mcts_ai
     uint32_t qthink;
     uint32_t max_depth;
     float    C;
+
+    struct node * nodes;
+    uint32_t total_nodes;
+    uint32_t used_nodes;
+    uint32_t good_node_alloc;
+    uint32_t bad_node_alloc;
+};
+
+struct node
+{
+    int32_t score;
+    int32_t qgames;
+    int32_t children[QSTEPS];
 };
 
 static void init_magic_steps(void);
@@ -44,6 +57,53 @@ static void * move_ptr(void * ptr, size_t offset)
     return base + offset;
 }
 
+static void reset_cache(struct mcts_ai * restrict const me)
+{
+    me->total_nodes = me->nodes ? me->cache / sizeof(struct node) : 0;
+    me->used_nodes = 0;
+    me->good_node_alloc = 0;
+    me->bad_node_alloc = 0;
+}
+
+static void free_cache(struct mcts_ai * restrict const me)
+{
+    if (me->nodes) {
+        free(me->nodes);
+        me->nodes = NULL;
+    }
+
+    reset_cache(me);
+}
+
+static int set_cache(
+    struct mcts_ai * restrict const me,
+    const uint32_t * value)
+{
+    const unsigned int node_sz = sizeof(struct node);
+    const unsigned int min_cache_sz = 16 * node_sz;
+    if (*value < min_cache_sz) {
+        snprintf(me->error_buf, ERROR_BUF_SZ, "Too small value for cache, minimum is %u.", min_cache_sz);
+        return EINVAL;
+    }
+
+    free_cache(me);
+    return 0;
+}
+
+static int init_cache(struct mcts_ai * restrict const me)
+{
+    if (me->nodes == NULL && me->cache > 0) {
+        me->nodes = malloc(me->cache);
+        if (me->nodes == NULL) {
+            snprintf(me->error_buf, ERROR_BUF_SZ, "Bad alloc %u bytes (nodes).", me->cache);
+            return ENOMEM;
+        }
+    }
+
+    reset_cache(me);
+    return 0;
+}
+
 static int set_param(
     struct mcts_ai * restrict const me,
     const struct ai_param * const param,
@@ -54,9 +114,19 @@ static int set_param(
         return EINVAL;
     }
 
-    void * restrict const ptr = move_ptr(me, param->offset);
-    memcpy(ptr, value, sz);
-    return 0;
+    int status = 0;
+    switch (param->offset) {
+        case OFFSET(cache):
+            status = set_cache(me, value);
+            break;
+    }
+
+    if (status == 0) {
+        void * restrict const ptr = move_ptr(me, param->offset);
+        memcpy(ptr, value, sz);
+    }
+
+    return status;
 }
 
 static void init_param(
@@ -71,6 +141,7 @@ static void init_param(
 
 static void free_ai(struct mcts_ai * restrict const me)
 {
+    free_cache(me);
     free(me);
 }
 
@@ -105,6 +176,9 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     me->state = state;
     me->backup = backup;
     me->error_buf = error_buf;
+
+    me->nodes = NULL;
+    reset_cache(me);
 
     memcpy(me->params, def_params, sizeof(me->params));
     for (int i=0; i<QPARAMS; ++i) {
@@ -241,14 +315,19 @@ int mcts_ai_set_param(
     const char * const name,
     const void * const value)
 {
+    ai->error = NULL;
+
     struct mcts_ai * restrict const me = ai->data;
     const struct ai_param * const param = find_param(me, name);
     if (param == NULL) {
         return EINVAL;
     }
 
-    set_param(me, param, value);
-    return 0;
+    const int status = set_param(me, param, value);
+    if (status != 0) {
+        ai->error = me->error_buf;
+    }
+    return status;
 }
 
 int init_mcts_ai(
@@ -296,6 +375,20 @@ static void init_magic_steps(void)
             }
         }
     }
+}
+
+struct node * alloc_node(struct mcts_ai * restrict const me)
+{
+    if (me->used_nodes >= me->total_nodes) {
+        ++me->bad_node_alloc;
+        return NULL;
+    }
+
+    struct node * restrict const result = me->nodes + me->used_nodes;
+    ++me->good_node_alloc;
+    ++me->used_nodes;
+    memset(result, 0, sizeof(struct node));
+    return result;
 }
 
 int rollout(
@@ -357,6 +450,8 @@ static enum step ai_go(
     struct mcts_ai * restrict const me,
     struct step_stat * restrict const stats)
 {
+    init_cache(me);
+
     steps_t steps = state_get_steps(me->state);
     if (steps == 0) {
         errno = EINVAL;
