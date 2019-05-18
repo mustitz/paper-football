@@ -24,6 +24,11 @@ struct mcts_ai
     float    C;
 };
 
+static void init_magic_steps(void);
+static enum step ai_go(
+    struct mcts_ai * restrict const me,
+    struct step_stat * restrict const stats);
+
 #define OFFSET(name) offsetof(struct mcts_ai, name)
 static struct ai_param def_params[QPARAMS+1] = {
     {     "cache",     &def_cache, U32, OFFSET(cache) },
@@ -71,6 +76,8 @@ static void free_ai(struct mcts_ai * restrict const me)
 
 struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
 {
+    init_magic_steps();
+
     const uint32_t qpoints = geometry->qpoints;
     const size_t sizes[6] = {
         sizeof(struct mcts_ai),
@@ -206,14 +213,7 @@ enum step mcts_ai_go(
 {
     ai->error = NULL;
     struct mcts_ai * restrict const me = ai->data;
-
-    steps_t steps = state_get_steps(me->state);
-    if (steps == 0) {
-        errno = EINVAL;
-        return INVALID_STEP;
-    }
-
-    return first_step(steps);
+    return ai_go(me, stats);
 }
 
 const struct ai_param * mcts_ai_get_params(const struct ai * const ai)
@@ -271,4 +271,97 @@ int init_mcts_ai(
     ai->set_param = mcts_ai_set_param;
     ai->free = free_mcts_ai;
     return 0;
+}
+
+
+
+/* AI step selection */
+
+static enum step magic_steps[256][8];
+
+static void init_magic_steps(void)
+{
+    if (magic_steps[1][1] == 1) {
+        return;
+    }
+
+    for (uint32_t mask=0; mask<256; ++mask) {
+        steps_t steps = mask;
+        for (int n=0; n<8; ++n) {
+            if (steps == 0) {
+                magic_steps[mask][n] = INVALID_STEP;
+            } else {
+                enum step step = extract_step(&steps);
+                magic_steps[mask][n] = step;
+            }
+        }
+    }
+}
+
+int rollout(
+    struct state * restrict const state,
+    uint32_t max_steps,
+    uint32_t * qthink)
+{
+    const int32_t * const connections = state->geometry->connections;
+
+    int active = state->active;
+    int ball = state->ball;
+    uint8_t * restrict const lines = state->lines;
+
+    if (ball == GOAL_1) {
+        return +1;
+    }
+
+    if (ball == GOAL_2) {
+        return -1;
+    }
+
+    for (;;) {
+        if (max_steps-- == 0) {
+            return 0;
+        }
+
+        const steps_t ball_lines = lines[ball];
+        const steps_t answers = ball_lines ^ 0xFF;
+        if (answers == 0) {
+            return active != 1 ? +1 : -1;
+        }
+
+        const int qanswers = step_count(answers);
+        const int index = qanswers == 1 ? 0 : rand() % qanswers;
+        enum step step = magic_steps[answers][index];
+
+        const int next = connections[ball*QSTEPS + step];
+
+        if (next == GOAL_1) {
+            return +1;
+        }
+
+        if (next == GOAL_2) {
+            return -1;
+        }
+
+        lines[ball] |= (1 << step);
+        lines[next] |= (1 << BACK(step));
+        ball = next;
+        ++*qthink;
+
+        if (ball_lines == 0) {
+            active ^= 3;
+        }
+    }
+}
+
+static enum step ai_go(
+    struct mcts_ai * restrict const me,
+    struct step_stat * restrict const stats)
+{
+    steps_t steps = state_get_steps(me->state);
+    if (steps == 0) {
+        errno = EINVAL;
+        return INVALID_STEP;
+    }
+
+    return first_step(steps);
 }

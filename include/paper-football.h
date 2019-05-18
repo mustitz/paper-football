@@ -38,6 +38,11 @@ enum step {
 
 typedef uint32_t steps_t;
 
+static inline int step_count(steps_t steps)
+{
+    return __builtin_popcount(steps);
+}
+
 static inline enum step first_step(steps_t steps)
 {
     return __builtin_ctz(steps);
