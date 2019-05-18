@@ -25,6 +25,7 @@ MU_VALGRIND
 
 AC_PROG_CC_C99
 AM_SILENT_RULES([yes])
+AC_SEARCH_LIBS([sqrt, log], [m])
 
 
 

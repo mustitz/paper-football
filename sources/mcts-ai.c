@@ -1,5 +1,6 @@
 #include "paper-football.h"
 
+#include <math.h>
 #include <stdio.h>
 
 #define ERROR_BUF_SZ   256
@@ -509,6 +510,46 @@ void add_history(
     me->hist_ptr->inode = node - me->nodes;
     me->hist_ptr->active = active;
     ++me->hist_ptr;
+}
+
+enum step select_step(
+    const struct mcts_ai * const me,
+    const struct node * const node,
+    steps_t steps)
+{
+    int qbest = 0;
+    enum step best_steps[QSTEPS];
+    float best_weight = -1.0e+10f;
+
+    const int multiple_ways = steps & (steps - 1);
+    if (!multiple_ways) {
+        const enum step choice = first_step(steps);
+        return choice;
+    }
+
+    const float total = node->qgames;
+    const float log_total = log(total);
+    while (steps != 0) {
+        const enum step step = extract_step(&steps);
+        const struct node * const child = me->nodes + node->children[step];
+        const float score = child->score;
+        const float qgames = child->qgames;
+        const float ev = score / qgames;
+        const float investigation = sqrt(log_total/qgames);
+        const float weight = ev + me->C * investigation;
+
+        if (weight >= best_weight) {
+            if (weight != best_weight) {
+                qbest = 0;
+                best_weight = weight;
+            }
+            best_steps[qbest++] = step;
+        }
+    }
+
+    const int index = qbest == 1 ? 0 : rand() % qbest;
+    const enum step choice = best_steps[index];
+    return choice;
 }
 
 static enum step ai_go(
