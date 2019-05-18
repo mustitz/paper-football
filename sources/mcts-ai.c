@@ -653,4 +653,54 @@ int test_node_cache(void)
     return 0;
 }
 
+#define HISTORY_QITEMS 1000
+
+int test_mcts_history(void)
+{
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
+            BW, BH, GW, errno);
+    }
+
+    struct ai storage;
+    struct ai * restrict const ai = &storage;
+    init_mcts_ai(ai, geometry);
+    struct mcts_ai * restrict const me = ai->data;
+
+    const uint32_t cache = (HISTORY_QITEMS + 16) * sizeof(struct node);
+    ai->set_param(ai, "cache", &cache);
+    init_cache(me);
+
+    const struct node * nodes[HISTORY_QITEMS];
+
+    for (int i=0; i<HISTORY_QITEMS; ++i) {
+        struct node * restrict const node = alloc_node(me);
+        nodes[i] = node;
+
+        const int active = (i%2) + 1;
+        node->qgames = i;
+        node->score = active == 1 ? i/2 : -i/2;
+        add_history(me, node, active);
+    }
+
+    update_history(me, -1);
+
+    for (int i=0; i<HISTORY_QITEMS; ++i) {
+        const struct node * const node = nodes[i];
+        if (node->qgames != i+1) {
+            test_fail("Unexpected qgames %u for nodes[%d], %d expected.", node->qgames, i, i+1);
+        }
+        const int active = (i%2) + 1;
+        const int32_t score = active == 1 ? i/2 - 1 : 1 - i/2;
+        if (node->score != score) {
+            test_fail("Unexpected score %d for nodes[%d], %d expected.", node->score, i, score);
+        }
+    }
+
+    ai->free(ai);
+    destroy_geometry(geometry);
+    return 0;
+}
+
 #endif
