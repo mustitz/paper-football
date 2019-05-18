@@ -365,3 +365,68 @@ static enum step ai_go(
 
     return first_step(steps);
 }
+
+
+
+#ifdef MAKE_CHECK
+
+#include "insider.h"
+
+#define BW    9
+#define BH   11
+#define GW    2
+
+#define QROLLOUTS   1024
+
+int test_rollout(void)
+{
+    init_magic_steps();
+
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
+            BW, BH, GW, errno);
+    }
+
+    struct state * restrict const state = create_state(geometry);
+    if (state == NULL) {
+        test_fail("create_state(geometry) fails, fails, return value is NULL, errno is %d.", errno);
+    }
+
+    struct state * restrict const base = create_state(geometry);
+    if (base == NULL) {
+        test_fail("create_state(geometry) fails, fails, return value is NULL, errno is %d.", errno);
+    }
+
+    for (int i=0; i<QROLLOUTS; ++i) {
+        state_copy(state, base);
+
+        uint32_t qthink = 0;
+        const int score = rollout(state, BW*BH*8, &qthink);
+        if (score != -1 && score != +1) {
+            test_fail("rollout %d returns unexpected score %d (-1 or +1 expected).", i, score);
+        }
+
+        if (qthink >= BW*BH*8) {
+            test_fail("Unexpected qthink value %u after rollout.", qthink);
+        }
+    }
+
+    state_copy(state, base);
+    uint32_t qthink = 0;
+    const int score = rollout(state, 4, &qthink);
+    if (score != 0) {
+        test_fail("short rollout returns unexpected score %d, 0 expected.", score);
+    }
+
+    if (qthink != 4) {
+        test_fail("Unexpected qthink value %u after rollout, 4 expected.", qthink);
+    }
+
+    destroy_state(base);
+    destroy_state(state);
+    destroy_geometry(geometry);
+    return 0;
+}
+
+#endif

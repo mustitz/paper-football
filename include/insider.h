@@ -6,3 +6,4 @@ int test_std_geometry(void);
 int test_step(void);
 int test_history(void);
 int test_random_ai(void);
+int test_rollout(void);
