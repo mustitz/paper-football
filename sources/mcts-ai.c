@@ -906,4 +906,50 @@ int test_ucb_formula(void)
     return 0;
 }
 
+#define QSIMULATIONS  1000
+
+int test_simulation(void)
+{
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
+            BW, BH, GW, errno);
+    }
+
+    struct ai storage;
+    struct ai * restrict const ai = &storage;
+    init_mcts_ai(ai, geometry);
+    const uint32_t cache = 2 * QSIMULATIONS * sizeof(struct node);
+    ai->set_param(ai, "cache", &cache);
+
+    struct mcts_ai * restrict const me = ai->data;
+    init_cache(me);
+
+    struct node * restrict const zero = alloc_node(me);
+    if (zero == NULL) {
+        test_fail("alloc zero node failed.");
+    }
+    zero->score = 2;
+    zero->qgames = 1;
+
+    struct node * restrict const root = alloc_node(me);
+    if (zero == NULL) {
+        test_fail("alloc root node failed.");
+    }
+
+    root->qgames = 1;
+    for (int i=0; i<QSIMULATIONS; ++i) {
+        simulate(me, root);
+        ++root->qgames;
+    }
+
+    if (root->qgames != QSIMULATIONS + 1) {
+        test_fail("root->qgames = %u, but %u expected.", root->qgames, QSIMULATIONS);
+    }
+
+    ai->free(ai);
+    destroy_geometry(geometry);
+    return 0;
+}
+
 #endif
