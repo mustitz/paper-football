@@ -28,6 +28,17 @@ struct mcts_ai
     uint32_t used_nodes;
     uint32_t good_node_alloc;
     uint32_t bad_node_alloc;
+
+    struct hist_item * hist;
+    struct hist_item * hist_ptr;
+    struct hist_item * hist_last;
+    uint32_t max_hist_len;
+};
+
+struct hist_item
+{
+    uint32_t inode;
+    int active;
 };
 
 struct node
@@ -142,6 +153,9 @@ static void init_param(
 static void free_ai(struct mcts_ai * restrict const me)
 {
     free_cache(me);
+    if (me->hist) {
+        free(me->hist);
+    }
     free(me);
 }
 
@@ -179,6 +193,11 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
 
     me->nodes = NULL;
     reset_cache(me);
+
+    me->hist = NULL;
+    me->hist_last = NULL;
+    me->hist_ptr = NULL;
+    me->max_hist_len = 0;
 
     memcpy(me->params, def_params, sizeof(me->params));
     for (int i=0; i<QPARAMS; ++i) {
@@ -444,6 +463,52 @@ int rollout(
             active ^= 3;
         }
     }
+}
+
+void update_history(
+    struct mcts_ai * restrict const me,
+    const int32_t score)
+{
+    const struct hist_item * ptr = me->hist;
+    const struct hist_item * const end = me->hist_ptr;
+    for (; ptr != end; ++ptr) {
+        struct node * restrict const node = me->nodes + ptr->inode;
+        ++node->qgames;
+        node->score += ptr->active == 1 ? score : -score;
+    }
+
+    const uint32_t hist_len = me->hist_ptr - me->hist;
+    if (hist_len > me->max_hist_len) {
+        me->max_hist_len = hist_len;
+    }
+}
+
+void add_history(
+    struct mcts_ai * restrict const me,
+    struct node * restrict const node,
+    const int active)
+{
+    if (me->hist_ptr != me->hist_last) {
+        me->hist_ptr->inode = node - me->nodes;
+        me->hist_ptr->active = active;
+        ++me->hist_ptr;
+        return;
+    }
+
+    const size_t hist_capacity = me->hist_last - me->hist;
+    const size_t new_hist_capacity = 128 + 2 * hist_capacity;
+    const size_t new_history_sz = new_hist_capacity * sizeof(struct hist_item);
+    struct hist_item * restrict const new_hist = realloc(me->hist, new_history_sz);
+    if (new_hist == NULL) {
+        return;
+    }
+
+    me->hist_ptr += new_hist - me->hist;
+    me->hist = new_hist;
+    me->hist_last = new_hist + new_hist_capacity;
+    me->hist_ptr->inode = node - me->nodes;
+    me->hist_ptr->active = active;
+    ++me->hist_ptr;
 }
 
 static enum step ai_go(
