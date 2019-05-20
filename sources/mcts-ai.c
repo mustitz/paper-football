@@ -307,7 +307,11 @@ enum step mcts_ai_go(
 {
     ai->error = NULL;
     struct mcts_ai * restrict const me = ai->data;
-    return ai_go(me, stats);
+    const enum step step = ai_go(me, stats);
+    if (step == INVALID_STEP) {
+        ai->error = me->error_buf;
+    }
+    return step;
 }
 
 const struct ai_param * mcts_ai_get_params(const struct ai * const ai)
@@ -552,7 +556,7 @@ static enum step select_step(
     return choice;
 }
 
-uint32_t simulate(
+static uint32_t simulate(
     struct mcts_ai * restrict const me,
     struct node * restrict node)
 {
@@ -635,15 +639,72 @@ static enum step ai_go(
     struct mcts_ai * restrict const me,
     struct step_stat * restrict const stats)
 {
-    init_cache(me);
-
-    steps_t steps = state_get_steps(me->state);
+    const steps_t steps = state_get_steps(me->state);
     if (steps == 0) {
-        errno = EINVAL;
+        snprintf(me->error_buf, ERROR_BUF_SZ, "no possible steps.");
         return INVALID_STEP;
     }
 
-    return first_step(steps);
+    const int multiple_ways = steps & (steps - 1);
+    if (!multiple_ways) {
+        const enum step choice = first_step(steps);
+        return choice;
+    }
+
+    init_cache(me);
+
+    struct node * restrict const zero = alloc_node(me);
+    if (zero == NULL) {
+        snprintf(me->error_buf, ERROR_BUF_SZ, "alloc zero node failed.");
+        return INVALID_STEP;
+    }
+    zero->score = 2;
+    zero->qgames = 1;
+
+    struct node * restrict const root = alloc_node(me);
+    if (root == NULL) {
+        snprintf(me->error_buf, ERROR_BUF_SZ, "alloc root node failed.");
+        return INVALID_STEP;
+    }
+
+    root->qgames = 1;
+    uint32_t qthink = 0;
+    for (;;) {
+        const uint32_t delta_think = simulate(me, root);
+        if (delta_think == 0) {
+            break;
+        }
+
+        qthink += delta_think;
+        ++root->qgames;
+
+        if (qthink >= me->qthink) {
+            break;
+        }
+    }
+
+    int qbest = 0;
+    int32_t best_qgames = 0;
+    enum step best_steps[QSTEPS];
+
+    for (enum step step=0; step<QSTEPS; ++step) {
+        const uint32_t ichild = root->children[step];
+        if (ichild == 0) {
+            continue;
+        }
+
+        const struct node * const child = me->nodes + ichild;
+        if (child->qgames >= best_qgames) {
+            if (child->qgames > best_qgames) {
+                qbest = 0;
+                best_qgames = child->qgames;
+            }
+            best_steps[qbest++] = step;
+        }
+    }
+
+    const int index = qbest == 1 ? 0 : rand() % qbest;
+    return best_steps[index];
 }
 
 
