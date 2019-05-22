@@ -175,6 +175,12 @@ int random_ai_set_param(
     return EINVAL;
 }
 
+const struct state * random_ai_get_state(const struct ai * const ai)
+{
+    struct random_ai * restrict const me = ai->data;
+    return me->state;
+}
+
 int init_random_ai(
     struct ai * restrict const ai,
     const struct geometry * const geometry)
@@ -193,6 +199,7 @@ int init_random_ai(
     ai->go = random_ai_go;
     ai->get_params = random_ai_get_params;
     ai->set_param = random_ai_set_param;
+    ai->get_state = random_ai_get_state;
     ai->free = free_random_ai;
     return 0;
 }
@@ -236,7 +243,7 @@ int test_random_ai(void)
         test_fail("do_steps(W S SW SW) is OK, but ai->error is set.");
     }
 
-    steps_t possible = (1 << EAST) | (1 << SOUTH_EAST);
+    const steps_t possible = state_get_steps(ai->get_state(ai));
     for (int i=0; i<100; ++i) {
         enum step step = ai->go(ai, NULL);
         steps_t mask = 1 << step;

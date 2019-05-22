@@ -354,6 +354,12 @@ int mcts_ai_set_param(
     return status;
 }
 
+const struct state * mcts_ai_get_state(const struct ai * const ai)
+{
+    struct mcts_ai * restrict const me = ai->data;
+    return me->state;
+}
+
 int init_mcts_ai(
     struct ai * restrict const ai,
     const struct geometry * const geometry)
@@ -372,6 +378,7 @@ int init_mcts_ai(
     ai->go = mcts_ai_go;
     ai->get_params = mcts_ai_get_params;
     ai->set_param = mcts_ai_set_param;
+    ai->get_state = mcts_ai_get_state;
     ai->free = free_mcts_ai;
     return 0;
 }

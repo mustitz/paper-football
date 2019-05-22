@@ -170,6 +170,8 @@ struct ai
         const char * const name,
         const void * const value);
 
+    const struct state * (*get_state)(const struct ai * const ai);
+
     void (*free)(struct ai * restrict const ai);
 };
 
