@@ -76,6 +76,7 @@ struct state
     uint8_t * lines;
     int active;
     int ball;
+    int ball_before_goal;
 };
 
 enum state_status
@@ -99,6 +100,7 @@ int state_copy(
 enum state_status state_status(const struct state * const me);
 steps_t state_get_steps(const struct state * const me);
 int state_step(struct state * restrict const me, const enum step step);
+int state_unstep(struct state * restrict const me, const enum step step);
 
 
 

@@ -162,6 +162,7 @@ struct state * create_state(const struct geometry * const geometry)
     me->geometry = geometry;
     me->active = 1;
     me->ball = qpoints / 2;
+    me->ball_before_goal = NO_WAY;
     me->lines = ptrs[1];
 
     init_lines(geometry, me->lines);
@@ -236,8 +237,14 @@ int state_step(struct state * restrict const me, const enum step step)
 
     const int32_t * const connections = me->geometry->connections;
     const int next = connections[QSTEPS*ball + step];
+
+    if (next == NO_WAY) {
+        return next;
+    }
+
     me->ball = next;
     if (next < 0) {
+        me->ball_before_goal = ball;
         return next;
     }
 
@@ -250,6 +257,49 @@ int state_step(struct state * restrict const me, const enum step step)
     }
 
     return next;
+}
+
+int state_unstep(struct state * restrict const me, const enum step step)
+{
+    const int ball = me->ball;
+    if (ball < 0) {
+        me->ball = me->ball_before_goal;
+        me->ball_before_goal = NO_WAY;
+        return me->ball;
+    }
+
+    const enum step back = BACK(step);
+    const int32_t * const connections = me->geometry->connections;
+    const int prev = connections[QSTEPS*ball + back];
+    if (prev < 0) {
+        return NO_WAY;
+    }
+
+    uint8_t * restrict const lines = me->lines;
+    const uint8_t ball_lines = lines[ball];
+    const uint8_t prev_lines = lines[prev];
+
+    const uint8_t back_mask = 1 << back;
+    const int ball_lines_ok = ball_lines & back_mask;
+    if (!ball_lines_ok) {
+        return NO_WAY;
+    }
+
+    const uint8_t step_mask = 1 << step;
+    const int prev_lines_ok = prev_lines & step_mask;
+    if (!prev_lines_ok) {
+        return NO_WAY;
+    }
+
+    lines[ball] ^= back_mask;
+    lines[prev] ^= step_mask;
+    me->ball = prev;
+
+    if (lines[ball] == 0) {
+        me->active ^= 3;
+    }
+
+    return prev;
 }
 
 
