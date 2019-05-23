@@ -145,6 +145,7 @@ struct ai
 {
     void * data;
     const char * error;
+    struct history history;
 
     int (*reset)(
         struct ai * restrict const ai,

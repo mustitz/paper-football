@@ -57,6 +57,7 @@ struct random_ai * create_random_ai(const struct geometry * const geometry)
 
 void free_random_ai(struct ai * restrict const ai)
 {
+    free_history(&ai->history);
     free(ai->data);
 }
 
@@ -84,11 +85,19 @@ int random_ai_do_step(
 {
     ai->error = NULL;
     struct random_ai * restrict const me = ai->data;
-    const int next = state_step(me->state, step);
 
+    struct history * restrict const history = &ai->history;
+    const int status = history_push(history, step);
+    if (status != 0) {
+        snprintf(me->error_buf, ERROR_BUF_SZ, "Bad history push, return code is %d.", status);
+        return status;
+    }
+
+    const int next = state_step(me->state, step);
     if (next == NO_WAY) {
         snprintf(me->error_buf, ERROR_BUF_SZ, "Direction occupied.");
         ai->error = me->error_buf;
+        --history->qsteps;
         return EINVAL;
     }
 
@@ -110,6 +119,17 @@ int random_ai_do_steps(
     ai->error = NULL;
     struct random_ai * restrict const me = ai->data;
 
+    struct history * restrict const history = &ai->history;
+    const unsigned int old_qsteps = history->qsteps;
+    for (unsigned int i=0; i<qsteps; ++i) {
+        const int status = history_push(history, steps[i]);
+        if (status != 0) {
+            snprintf(me->error_buf, ERROR_BUF_SZ, "Bad history push, return code is %d.", status);
+            history->qsteps = old_qsteps;
+            return status;
+        }
+    }
+
     state_copy(me->backup, me->state);
 
     const enum step * ptr = steps;
@@ -121,6 +141,7 @@ int random_ai_do_steps(
             snprintf(me->error_buf, ERROR_BUF_SZ, "Error on step %d: direction  occupied.", index);
             ai->error = me->error_buf;
             restore_backup(me);
+            history->qsteps = old_qsteps;
             return EINVAL;
         }
     }
@@ -193,6 +214,8 @@ int init_random_ai(
         return errno;
     }
 
+    init_history(&ai->history);
+
     ai->reset = random_ai_reset;
     ai->do_step = random_ai_do_step;
     ai->do_steps = random_ai_do_steps;
@@ -201,6 +224,7 @@ int init_random_ai(
     ai->set_param = random_ai_set_param;
     ai->get_state = random_ai_get_state;
     ai->free = free_random_ai;
+
     return 0;
 }
 
