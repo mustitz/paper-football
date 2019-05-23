@@ -323,6 +323,59 @@ int mcts_ai_do_steps(
     return 0;
 }
 
+int mcts_ai_undo_step(
+    struct ai * restrict const ai)
+{
+    ai->error = NULL;
+    struct mcts_ai * restrict const me = ai->data;
+
+    struct history * restrict const history = &ai->history;
+    if (history->qsteps == 0) {
+        return EINVAL;
+    }
+
+    const enum step step = history->steps[history->qsteps-1];
+    const int next = state_unstep(me->state, step);
+    if (next < 0) {
+        snprintf(me->error_buf, ERROR_BUF_SZ, "Impossible unstep.");
+        ai->error = me->error_buf;
+        return EINVAL;
+    }
+
+    --history->qsteps;
+    return 0;
+}
+
+int mcts_ai_undo_steps(
+    struct ai * restrict const ai,
+    const unsigned int qsteps)
+{
+    ai->error = NULL;
+    struct mcts_ai * restrict const me = ai->data;
+
+    struct history * restrict const history = &ai->history;
+    if (history->qsteps < qsteps) {
+        return EINVAL;
+    }
+
+    state_copy(me->backup, me->state);
+
+    for (unsigned int i=0; i<qsteps; ++i) {
+        const unsigned int index = history->qsteps - i - 1;
+        const enum step step = history->steps[index];
+        const int ball = state_unstep(me->state, step);
+        if (ball < 0) {
+            snprintf(me->error_buf, ERROR_BUF_SZ, "Error on unstep %d: impossible.", i);
+            ai->error = me->error_buf;
+            restore_backup(me);
+            return EINVAL;
+        }
+    }
+
+    history->qsteps -= qsteps;
+    return 0;
+}
+
 enum step mcts_ai_go(
     struct ai * restrict const ai,
     struct step_stat * restrict const stats)
@@ -399,6 +452,8 @@ int init_mcts_ai(
     ai->reset = mcts_ai_reset;
     ai->do_step = mcts_ai_do_step;
     ai->do_steps = mcts_ai_do_steps;
+    ai->undo_step = mcts_ai_undo_step;
+    ai->undo_steps = mcts_ai_undo_steps;
     ai->go = mcts_ai_go;
     ai->get_params = mcts_ai_get_params;
     ai->set_param = mcts_ai_set_param;

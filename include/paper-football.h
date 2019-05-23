@@ -162,6 +162,9 @@ struct ai
         const unsigned int qsteps,
         const enum step steps[]);
 
+    int (*undo_step)(struct ai * restrict const ai);
+    int (*undo_steps)(struct ai * restrict const ai, const unsigned int qsteps);
+
     enum step (*go)(
         struct ai * restrict const ai,
         struct step_stat * restrict const stats);
