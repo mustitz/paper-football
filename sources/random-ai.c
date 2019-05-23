@@ -358,4 +358,49 @@ int test_random_ai(void)
     return 0;
 }
 
+int test_random_ai_unstep(void)
+{
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
+            BW, BH, GW, errno);
+    }
+
+    struct ai storage;
+    struct ai * restrict const ai = &storage;
+
+    init_random_ai(ai, geometry);
+
+    const struct state * const state = ai->get_state(ai);
+    while (state_status(state) == IN_PROGRESS) {
+        const enum step step = ai->go(ai, NULL);
+        ai->do_step(ai, step);
+    }
+
+    const int status = ai->undo_steps(ai, ai->history.qsteps);
+    if (status != 0) {
+        test_fail("undo steps failed, status %d, error: %s", status, ai->error);
+    }
+
+    struct state * restrict const check_state = create_state(geometry);
+
+    if (state->active != check_state->active) {
+        test_fail("All undo: active expected %d, but value is %d.", check_state->active, state->active);
+    }
+
+    if (state->ball != check_state->ball) {
+        test_fail("All undo: ball expected %d, but value is %d.", check_state->ball, state->ball);
+    }
+
+    if (memcmp(state->lines, check_state->lines, geometry->qpoints) != 0) {
+        test_fail("All undo: lines mismatch.");
+    }
+
+    ai->free(ai);
+    destroy_state(check_state);
+
+    destroy_geometry(geometry);
+    return 0;
+}
+
 #endif
