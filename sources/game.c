@@ -586,4 +586,115 @@ int test_history(void)
     return 0;
 }
 
+int test_unstep(void)
+{
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) failed, errno = %d.", BW, BH, GW, errno);
+    }
+
+    struct state * restrict const state = create_state(geometry);
+    if (state == NULL) {
+        test_fail("create_state(geometry) failed, errno = %d.", errno);
+    }
+
+    struct state * restrict const saved = create_state(geometry);
+    if (saved == NULL) {
+        test_fail("create_state(geometry) failed, errno = %d.", errno);
+    }
+
+    struct check {
+        enum step step;
+        int active;
+        int ball;
+        int ball_before_goal;
+    };
+
+    const size_t history_len = BW * BH * QSTEPS;
+    const size_t history_sz = history_len * sizeof(struct check);
+    struct check * const history = malloc(history_sz);
+    struct check * restrict ptr = history;
+
+
+
+    do {
+        steps_t steps = state_get_steps(state);
+        if (steps == 0) {
+            test_fail("state_get_steps returns 0, but game is not over.");
+        }
+
+        int qpossibility = 0;
+        enum step possibility[QSTEPS];
+        while (steps != 0) {
+            const enum step step = extract_step(&steps);
+            possibility[qpossibility++] = step;
+        }
+
+        const int index = qpossibility == 1 ? 0 : rand() % qpossibility;
+        const enum step step = possibility[index];
+
+        if (ptr ==  history + history_len) {
+            test_fail("history overflow");
+        }
+
+        ptr->step = step;
+        ptr->ball = state->ball;
+        ptr->active = state->active;
+        ptr->ball_before_goal = state->ball_before_goal;
+        ++ptr;
+
+        const int ball = state_step(state, step);
+        if (ball == NO_WAY) {
+            test_fail("state_step returns NO_WAY");
+        }
+
+    } while (state_status(state) == IN_PROGRESS);
+
+
+
+    while (--ptr >= history) {
+        const int ball = state_unstep(state, ptr->step);
+        if (ball < 0) {
+            test_fail("upstep returns %d as ball, but nonnegative value expected.", ball);
+        }
+
+        size_t nstep = ptr - history;
+
+        if (state->ball != ptr->ball) {
+            test_fail("step %lu: state ball mismatch, actual = %d, expected %d.", nstep, state->ball, ptr->ball);
+        }
+
+        if (state->active != ptr->active) {
+            test_fail("step %lu: state active mismatch, actual = %d, expected %d.", nstep, state->active, ptr->active);
+        }
+
+        if (state->ball_before_goal != ptr->ball_before_goal) {
+            test_fail("step %lu: state ball_before_goal mismatch, actual = %d, expected %d.", nstep, state->ball_before_goal, ptr->ball_before_goal);
+        }
+    }
+
+    if (state->ball != saved->ball) {
+        test_fail("initial state is not restored: state ball mismatch, actual = %d, expected %d.", state->ball, saved->ball);
+    }
+
+    if (state->active != saved->active) {
+        test_fail("initial state is not restored: state active mismatch, actual = %d, expected %d.", state->active, saved->active);
+    }
+
+    if (state->ball_before_goal != saved->ball_before_goal) {
+        test_fail("initial state is not restored: state ball_before_goal mismatch, actual = %d, expected %d.", state->ball_before_goal, saved->ball_before_goal);
+    }
+
+    const int lines_cmp = memcmp(state->lines, saved->lines, geometry->qpoints);
+    if (lines_cmp != 0) {
+        test_fail("state->lines and saved->lines mismatch.");
+    }
+
+    free(history);
+    destroy_state(saved);
+    destroy_state(state);
+    destroy_geometry(geometry);
+    return 0;
+}
+
 #endif

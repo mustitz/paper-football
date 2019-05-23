@@ -11,3 +11,4 @@ int test_node_cache(void);
 int test_mcts_history(void);
 int test_ucb_formula(void);
 int test_simulation(void);
+int test_unstep(void);

@@ -59,6 +59,7 @@ const struct test_item tests[] = {
     { "mcts-history", &test_mcts_history },
     { "ucb-formula", &test_ucb_formula },
     { "simulation", &test_simulation },
+    { "unstep", &test_unstep },
     { NULL, NULL }
 };
 
