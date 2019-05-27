@@ -441,6 +441,11 @@ int init_mcts_ai(
 {
     ai->error = NULL;
 
+    if (geometry == NULL) {
+        ai->error = "Argument “geometry” cannot be NULL.";
+        return EINVAL;
+    }
+
     ai->data = create_mcts_ai(geometry);
     if (ai->data == NULL) {
         ai->error = "Bad alloc for create_mcts_ai.";

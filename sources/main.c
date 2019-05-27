@@ -430,6 +430,7 @@ int init_cmd_parser(struct cmd_parser * restrict const me)
     me->state = NULL;
     me->backup = NULL;
     me->ai = NULL;
+    me->ai_desc = NULL;
 
     me->tracker = create_keyword_tracker(keywords, KW_TRACKER__IGNORE_CASE);
     if (me->tracker == NULL) {
@@ -846,7 +847,11 @@ int process_cmd(struct cmd_parser * restrict const me, const char * const line)
 int main()
 {
     struct cmd_parser cmd_parser;
-    init_cmd_parser(&cmd_parser);
+    const int status = init_cmd_parser(&cmd_parser);
+    if (status != 0) {
+        fprintf(stderr, "Fatal: cannot init command line parser, error code is %d.\n", status);
+        return status;
+    }
 
     char * line = 0;
     size_t len = 0;
