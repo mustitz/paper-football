@@ -294,13 +294,14 @@ int init_random_ai(
 
 #include "insider.h"
 
-#define BW    9
-#define BH   11
-#define GW    2
+#define BW   15
+#define BH   23
+#define GW    4
+#define FK    5
 
 int test_random_ai(void)
 {
-    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
         test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
             BW, BH, GW, errno);
@@ -365,7 +366,7 @@ int test_random_ai(void)
 
 int test_random_ai_unstep(void)
 {
-    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
         test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
             BW, BH, GW, errno);

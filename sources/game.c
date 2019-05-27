@@ -6,7 +6,11 @@ size_t param_sizes[QPARAM_TYPES] = {
     [F32] = sizeof(float),
 };
 
-struct geometry * create_std_geometry(const int width, const int height, const int goal_width)
+struct geometry * create_std_geometry(
+    const int width,
+    const int height,
+    const int goal_width,
+    const int free_kick_len)
 {
     return NULL;
 }

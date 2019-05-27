@@ -118,9 +118,10 @@ static int new_game(
     struct cmd_parser * restrict const me,
     const int width,
     const int height,
-    const int goal_width)
+    const int goal_width,
+    const int free_kick_len)
 {
-    struct geometry * restrict const geometry = create_std_geometry(width, height, goal_width);
+    struct geometry * restrict const geometry = create_std_geometry(width, height, goal_width, free_kick_len);
     if (geometry == NULL) {
         return errno;
     }
@@ -438,7 +439,7 @@ int init_cmd_parser(struct cmd_parser * restrict const me)
         return ENOMEM;
     }
 
-    const int status = new_game(me, 9, 11, 2);
+    const int status = new_game(me, 15, 23, 4, 5);
     if (status != 0) {
         free_cmd_parser(me);
         return status;
@@ -494,7 +495,7 @@ void process_new(struct cmd_parser * restrict const me)
     struct line_parser * restrict const lp = &me->line_parser;
 
     int status;
-    int width, height, goal_width;
+    int width, height, goal_width, free_kick_len;
 
     parser_skip_spaces(lp);
     status = parser_try_int(lp, &width);
@@ -552,12 +553,34 @@ void process_new(struct cmd_parser * restrict const me)
         return;
     }
 
+    parser_skip_spaces(lp);
+    status = parser_try_int(lp, &free_kick_len);
+    if (status != 0) {
+        error(lp, "Free kick len integer constant expected in NEW command.");
+        return;
+    }
+
+    if (free_kick_len <= 3) {
+        error(lp, "Free kick len should be at least 4 or more.");
+        return;
+    }
+
+    if (free_kick_len >= width/2) {
+        error(lp, "Free kick length should be less than width half = %d.", width/2);
+        return;
+    }
+
+    if (free_kick_len >= height/2) {
+        error(lp, "Free kick length should be less than height half = %d.", height/2);
+        return;
+    }
+
     if (!parser_check_eol(lp)) {
         error(lp, "End of line expected (NEW command is completed), but someting was found.");
         return;
     }
 
-    new_game(me, width, height, goal_width);
+    new_game(me, width, height, goal_width, free_kick_len);
 }
 
 void process_step(struct cmd_parser * restrict const me)

@@ -805,9 +805,10 @@ static enum step ai_go(
 
 #include "insider.h"
 
-#define BW    9
-#define BH   11
-#define GW    2
+#define BW   15
+#define BH   23
+#define GW    4
+#define FK    5
 
 #define QROLLOUTS   1024
 
@@ -815,7 +816,7 @@ int test_rollout(void)
 {
     init_magic_steps();
 
-    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
         test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
             BW, BH, GW, errno);
@@ -866,7 +867,7 @@ int test_rollout(void)
 
 int test_node_cache(void)
 {
-    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
         test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
             BW, BH, GW, errno);
@@ -930,7 +931,7 @@ int test_node_cache(void)
 
 int test_mcts_history(void)
 {
-    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
         test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
             BW, BH, GW, errno);
@@ -978,7 +979,7 @@ int test_mcts_history(void)
 
 int test_ucb_formula(void)
 {
-    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
         test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
             BW, BH, GW, errno);
@@ -1063,7 +1064,7 @@ int test_ucb_formula(void)
 
 int test_simulation(void)
 {
-    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
         test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
             BW, BH, GW, errno);
@@ -1109,7 +1110,7 @@ int test_mcts_ai_unstep(void)
 {
     int status;
 
-    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW);
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
         test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",
             BW, BH, GW, errno);

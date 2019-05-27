@@ -60,13 +60,15 @@ static inline enum step extract_step(steps_t * mask)
 struct geometry
 {
     uint32_t qpoints;
+    uint32_t free_kick_len;
     const int32_t * connections;
 };
 
 struct geometry * create_std_geometry(
     const int width,
     const int height,
-    const int goal_width);
+    const int goal_width,
+    const int penalty_len);
 
 void destroy_geometry(struct geometry * restrict const me);
 
