@@ -215,6 +215,16 @@ int state_copy(
 
 enum state_status state_status(const struct state * const me)
 {
+    const int ball = me->ball;
+
+    if (ball == GOAL_1) {
+        return WIN_1;
+    }
+
+    if (ball == GOAL_2) {
+        return WIN_2;
+    }
+
     return IN_PROGRESS;
 }
 
