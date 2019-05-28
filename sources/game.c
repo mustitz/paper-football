@@ -202,7 +202,15 @@ int state_copy(
         return 0;
     }
 
-    return EINVAL;
+    if (dest->geometry != src->geometry) {
+        return EINVAL;
+    }
+
+    memcpy(dest->lines, src->lines, src->geometry->qpoints);
+    dest->active = src->active;
+    dest->ball = src->ball;
+    dest->ball_before_goal = src->ball_before_goal;
+    return 0;
 }
 
 enum state_status state_status(const struct state * const me)
