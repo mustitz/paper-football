@@ -151,6 +151,19 @@ void init_lines(
     const struct geometry * const geometry,
     uint8_t * restrict const lines)
 {
+    const int32_t * const connections = geometry->connections;
+    const uint32_t qpoints = geometry->qpoints;
+
+    for (int32_t point = 0; point < qpoints; ++point) {
+        uint8_t mask = 0;
+        for (enum step step=0; step<QSTEPS; ++step) {
+            int32_t next = connections[QSTEPS*point+step];
+            if (next == NO_WAY) {
+                mask |= 1 << step;
+            }
+        }
+        lines[point] = mask;
+    }
 }
 
 struct state * create_state(const struct geometry * const geometry)
