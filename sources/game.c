@@ -168,11 +168,30 @@ void init_lines(
 
 struct state * create_state(const struct geometry * const geometry)
 {
-    return NULL;
+    const uint32_t qpoints = geometry->qpoints;
+    const size_t sizes[2] = { sizeof(struct state), qpoints };
+    void * ptrs[2];
+    void * data = multialloc(2, sizes, ptrs, 64);
+
+    if (data == NULL) {
+        return NULL;
+    }
+
+    struct state * restrict const me = data;
+    me->geometry = geometry;
+    me->active = 1;
+    me->ball = qpoints / 2;
+    me->ball_before_goal = NO_WAY;
+    me->lines = ptrs[1];
+
+    init_lines(geometry, me->lines);
+
+    return me;
 }
 
 void destroy_state(struct state * restrict const me)
 {
+    free(me);
 }
 
 int state_copy(
