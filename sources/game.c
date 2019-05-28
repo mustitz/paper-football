@@ -6,6 +6,15 @@ size_t param_sizes[QPARAM_TYPES] = {
     [F32] = sizeof(float),
 };
 
+struct three_step {
+    enum step step1;
+    steps_t possible;
+};
+
+steps_t magic_step3[64];
+
+
+
 static inline int check_dim(const int value)
 {
     if (value <= 4) {
@@ -87,13 +96,60 @@ static inline int goal_status(const int width, const int height, const int goal_
     return y2 != -1 ? GOAL_1 : GOAL_2;
 }
 
+static int init_magic_step3(void)
+{
+    if (magic_step3[0] == 0xEF) {
+        return 0;
+    }
+
+    static int deltas[QSTEPS] = { +7, +8, +9, +1, -7, -8, -9, -1 };
+    const int ball0 = 42;
+    steps_t * restrict ptr = magic_step3;
+    for (enum step step1=0; step1<QSTEPS; ++step1) {
+        const int ball1 = ball0 + deltas[step1];
+        for (enum step step2=0; step2<QSTEPS; ++step2) {
+            const int ball2 = ball1 + deltas[step2];
+            if (ball0 == ball2) {
+                *ptr++ = 0;
+                continue;
+            }
+
+            steps_t possible = 0;
+            steps_t mask = 1;
+            for (enum step step3=0; step3<QSTEPS; ++step3) {
+                const int ball3 = ball2 + deltas[step3];
+                if (ball3 != ball0 && ball3 != ball1) {
+                    possible |= mask;
+                }
+                mask <<= 1;
+            }
+
+            *ptr++ = possible;
+        }
+    }
+
+    if (ptr - magic_step3 != 64) {
+        memset(magic_step3, 0, sizeof(magic_step3));
+        return EINVAL;
+    }
+
+    return 0;
+}
+
 struct geometry * create_std_geometry(
     const int width,
     const int height,
     const int goal_width,
     const int free_kick_len)
 {
-    const int status = check_std_arg(width, height, goal_width, free_kick_len);
+    int status;
+    status = init_magic_step3();
+    if (status) {
+        errno = status;
+        return NULL;
+    }
+
+    status = check_std_arg(width, height, goal_width, free_kick_len);
     if (status) {
         return NULL;
     }

@@ -33,6 +33,7 @@ enum step {
 };
 
 #define INVALID_STEP QSTEPS
+#define ACTIVE_STEP_FREE_KICK  -1
 
 #define BACK(step) ((enum step)((step+4) & 0x07))
 
@@ -78,6 +79,7 @@ struct state
     uint8_t * lines;
     int active;
     int ball;
+    int active_step_done;
     int ball_before_goal;
 };
 
