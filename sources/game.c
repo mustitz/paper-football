@@ -222,9 +222,121 @@ void init_lines(
     }
 }
 
+static inline void mark_occuped(
+    struct state * restrict const me,
+    const int point)
+{
+    const int32_t * const connections = me->geometry->connections;
+    uint8_t * restrict const lines = me->lines;
+
+    const int32_t * ptr = connections + QSTEPS*point;
+    for (enum step step=0; step<QSTEPS; ++step) {
+        const int32_t next = *ptr;
+        if (next >= 0) {
+            enum step back = BACK(step);
+            uint8_t mask = 1 << back;
+            lines[next] |= mask;
+        }
+        ++ptr;
+    }
+}
+
+static inline void mark_diag(
+    struct state * restrict const me,
+    const int point,
+    const enum step step)
+{
+
+    if ((step & 1) == 1) {
+        /* This is not a diagonal step */
+        return;
+    }
+
+    const int32_t * const connections = me->geometry->connections + QSTEPS * point;
+    uint8_t * restrict const lines = me->lines;
+
+    enum step prev_step = (step - 1) & 0x07;
+    enum step next_step = (step + 1) & 0x07;
+
+    const int prev_point = connections[prev_step];
+    const int next_point = connections[next_step];
+
+    enum step prev_ortogonal = (step + 2) & 0x07;
+    enum step next_ortogonal = (step - 2) & 0x07;
+
+    lines[prev_point] |= (1 << prev_ortogonal);
+    lines[next_point] |= (1 << next_ortogonal);
+}
+
+static uint64_t state_gen_step12(const struct state * const me)
+{
+    uint64_t result = 0;
+    const int ball0 = me->ball;
+    const int32_t * const connections = me->geometry->connections;
+    const uint8_t * const lines = me->lines;
+
+    steps_t possible0 = lines[ball0] ^ 0xFF;
+    while (possible0 != 0) {
+        enum step step1 = extract_step(&possible0);
+        const int ball1 = connections[QSTEPS*ball0 + step1];
+        if (ball1 < 0) {
+            result |= 0xFF << (8*step1);
+            continue;
+        }
+
+        steps_t possible1 = ball1 < 0 ? 0xFF : lines[ball1] ^ 0xFF;
+        while (possible1 != 0) {
+            enum step step2 = extract_step(&possible1);
+            const int ball2 = connections[QSTEPS*ball1 + step2];
+            const int index = step1*8 + step2;
+            if (ball2 < 0) {
+                result |= 1ull << index;
+                continue;
+            }
+            steps_t ball_lines = ball2 >= 0 ? lines[ball2] : 0;
+            steps_t possible2 = (ball_lines ^ 0xFF) & magic_step3[index];
+            if (possible2 != 0) {
+                result |= 1ull << index;
+            }
+        }
+    }
+
+    return result;
+}
+
+static steps_t get_first_steps(const struct state * const me)
+{
+    const uint64_t step12 = me->step12;
+    const int step_NW = ((step12 >>  0) & 0xFF) != 0;
+    const int step_N  = ((step12 >>  8) & 0xFF) != 0;
+    const int step_NE = ((step12 >> 16) & 0xFF) != 0;
+    const int step_E  = ((step12 >> 24) & 0xFF) != 0;
+    const int step_SE = ((step12 >> 32) & 0xFF) != 0;
+    const int step_S  = ((step12 >> 40) & 0xFF) != 0;
+    const int step_SW = ((step12 >> 48) & 0xFF) != 0;
+    const int step_W  = ((step12 >> 56) & 0xFF) != 0;
+    return 0
+        | (step_NW << 0)
+        | (step_N  << 1)
+        | (step_NE << 2)
+        | (step_E  << 3)
+        | (step_SE << 4)
+        | (step_S  << 5)
+        | (step_SW << 6)
+        | (step_W  << 7)
+        ;
+}
+
+static steps_t get_second_steps(const struct state * const me)
+{
+    return 0xFF & (me->step12 >> (me->step1 << 3));
+}
+
 struct state * create_state(const struct geometry * const geometry)
 {
     const uint32_t qpoints = geometry->qpoints;
+    const int ball = qpoints / 2;
+
     const size_t sizes[2] = { sizeof(struct state), qpoints };
     void * ptrs[2];
     void * data = multialloc(2, sizes, ptrs, 64);
@@ -236,11 +348,16 @@ struct state * create_state(const struct geometry * const geometry)
     struct state * restrict const me = data;
     me->geometry = geometry;
     me->active = 1;
-    me->ball = qpoints / 2;
+    me->ball = ball;
     me->ball_before_goal = NO_WAY;
     me->lines = ptrs[1];
 
     init_lines(geometry, me->lines);
+
+    me->step1 = INVALID_STEP;
+    me->step2 = INVALID_STEP;
+    mark_occuped(me, ball);
+    me->step12 = state_gen_step12(me);
 
     return me;
 }
@@ -266,6 +383,9 @@ int state_copy(
     dest->active = src->active;
     dest->ball = src->ball;
     dest->ball_before_goal = src->ball_before_goal;
+    dest->step1 = src->step1;
+    dest->step2 = src->step2;
+    dest->step12 = src->step12;
     return 0;
 }
 
@@ -284,14 +404,77 @@ enum state_status state_status(const struct state * const me)
     return IN_PROGRESS;
 }
 
+
 steps_t state_get_steps(const struct state * const me)
 {
-    return 0;
+    if (me->step1 == INVALID_STEP) {
+        return get_first_steps(me);
+    }
+
+    if (me->step2 == INVALID_STEP) {
+        return get_second_steps(me);
+    }
+
+    return 0xFF ^ me->lines[me->ball];
 }
 
 int state_step(struct state * restrict const me, const enum step step)
 {
-    return INVALID_STEP;
+    const int32_t * const connections = me->geometry->connections;
+    const int ball = me->ball;
+    if (ball < 0) {
+        return ball;
+    }
+
+    const int32_t next = connections[QSTEPS*ball + step];
+    if (next < 0) {
+        if (next != NO_WAY) {
+            me->ball = next;
+        }
+        return next;
+    }
+
+    const steps_t mask = 1 << step;
+
+    if (me->step1 == INVALID_STEP) {
+        steps_t steps = get_first_steps(me);
+        const int occupied = (steps & mask) == 0;
+        if (occupied) {
+            return NO_WAY;
+        }
+        mark_occuped(me, next);
+        mark_diag(me, ball, step);
+        me->step1 = step;
+        return me->ball = next;
+    }
+
+    if (me->step2 == INVALID_STEP) {
+        steps_t steps = get_second_steps(me);
+        const int occupied = (steps & mask) == 0;
+        if (occupied) {
+            return NO_WAY;
+        }
+        mark_occuped(me, next);
+        mark_diag(me, ball, step);
+        me->step2 = step;
+        return me->ball = next;
+    }
+
+    steps_t steps = 0xFF ^ me->lines[ball];
+    const int occupied = (steps & mask) == 0;
+    if (occupied) {
+        return NO_WAY;
+    }
+    mark_occuped(me, next);
+    mark_diag(me, ball, step);
+    me->step1 = INVALID_STEP;
+    me->step2 = INVALID_STEP;
+    me->ball = next;
+    me->step12 = state_gen_step12(me);
+    if (me->step12 != 0) {
+        me->active ^= 3;
+    }
+    return next;
 }
 
 int state_unstep(struct state * restrict const me, const enum step step)
@@ -311,7 +494,7 @@ void free_history(struct history * restrict const me)
 
 int history_push(struct history * restrict const me, const enum step step)
 {
-    return EINVAL;
+    return 0;
 }
 
 #ifdef MAKE_CHECK

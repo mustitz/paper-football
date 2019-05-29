@@ -81,6 +81,9 @@ struct state
     int ball;
     int active_step_done;
     int ball_before_goal;
+    enum step step1;
+    enum step step2;
+    uint64_t step12;
 };
 
 enum state_status
