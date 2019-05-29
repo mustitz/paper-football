@@ -435,6 +435,32 @@ int test_std_geometry(void)
     return 0;
 }
 
+int test_magic_step3(void)
+{
+    const int status = init_magic_step3();
+    if (status != 0) {
+        test_fail("init_all_three_steps failed with code %d.", status);
+    }
+
+    const int status2 = init_magic_step3();
+    if (status2 != 0) {
+        test_fail("init_all_three_steps (second call) failed with code %d.", status2);
+    }
+
+    int qbits = 0;
+    const steps_t * ptr = magic_step3;
+    const steps_t * const end = ptr + 64;
+    for (; ptr != end; ++ptr) {
+        qbits += step_count(*ptr);
+    }
+
+    if (qbits != 368) {
+        test_fail("Invalid qbist, actual value is %d, expected %d.", qbits, 368);
+    }
+
+    return 0;
+}
+
 int test_step(void)
 {
     return 0;
