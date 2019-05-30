@@ -63,6 +63,7 @@ struct geometry
     uint32_t qpoints;
     uint32_t free_kick_len;
     const int32_t * connections;
+    const int32_t * free_kicks;
 };
 
 struct geometry * create_std_geometry(

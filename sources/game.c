@@ -156,9 +156,9 @@ struct geometry * create_std_geometry(
 
     const uint32_t qpoints = (uint32_t)(width) * (uint32_t)(height);
     const size_t board_map_sz = qpoints * QSTEPS * sizeof(uint32_t);
-    const size_t sizes[2] = { sizeof(struct geometry), board_map_sz };
-    void * ptrs[2];
-    void * data = multialloc(2, sizes, ptrs, 256);
+    const size_t sizes[3] = { sizeof(struct geometry), board_map_sz, board_map_sz };
+    void * ptrs[3];
+    void * data = multialloc(3, sizes, ptrs, 256);
 
     if (data == NULL) {
         return NULL;
@@ -190,9 +190,26 @@ struct geometry * create_std_geometry(
         }
     }
 
+    const int32_t * const connections = ptrs[1];
+    ptr = ptrs[2];
+    for (int32_t offset = 0; offset < width*height; ++offset) {
+        for (enum step step=0; step<QSTEPS; ++step)
+        {
+            int ball = offset;
+            for (int i=0; i<free_kick_len; ++i) {
+                ball = connections[ball*QSTEPS + step];
+                if (ball < 0) {
+                    break;
+                }
+            }
+            *ptr++ = ball;
+        }
+    }
+
     me->qpoints = qpoints;
     me->free_kick_len = free_kick_len;
     me->connections = ptrs[1];
+    me->free_kicks = ptrs[2];
     return me;
 }
 
@@ -527,6 +544,20 @@ static void check_steps(
     }
 }
 
+static void check_free_kick(
+    const struct geometry * const me,
+    const int x, const int y,
+    const int * const expected)
+{
+    const int point = make_point(x, y);
+    for (enum step step=0; step<QSTEPS; ++step) {
+        const int next = me->free_kicks[QSTEPS*point + step];
+        if (next != expected[step]) {
+            test_fail("Unexpected free kick: x=%d, y=%d, step=%d, next=%d, expected next=%d.", x, y, step, next, expected[step]);
+        }
+    }
+}
+
 static int apply_path(
     const struct geometry * const me,
     int point, const enum step path[])
@@ -613,6 +644,18 @@ int test_std_geometry(void)
 
     static enum step goal2[BH/2+1]= { [ 0 ... BH/2-2] = SOUTH, [BH/2-1] = SOUTH_WEST, [BH/2] = SOUTH_EAST };
     check_map(me, center,  GOAL_2, goal2);
+
+    const int expected_1[QSTEPS] = {
+        NO_WAY, NO_WAY, GOAL_1, make_point(7, 19),
+        make_point(7, 14), make_point(2, 14), NO_WAY, NO_WAY
+    };
+    check_free_kick(me, 2, 19, expected_1);
+
+    const int expected_2[QSTEPS] = {
+        make_point( 4, 22), make_point( 9, 22), make_point(14, 22), make_point(14, 17),
+        make_point(14, 12), make_point( 9, 12), make_point( 4, 12), make_point( 4, 17)
+    };
+    check_free_kick(me, 9, 17, expected_2);
 
     destroy_geometry(me);
     return 0;
