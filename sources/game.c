@@ -344,6 +344,21 @@ static steps_t get_first_steps(const struct state * const me)
         ;
 }
 
+static inline steps_t get_free_kicks(const struct state * const me)
+{
+    const int32_t * ptr = me->geometry->free_kicks + QSTEPS * me->ball;
+    const int32_t * const end = ptr + QSTEPS;
+    steps_t mask = 1;
+    steps_t result = 0;
+    for (; ptr != end; ++ptr) {
+        if (*ptr != NO_WAY) {
+            result |= mask;
+        }
+        mask <<= 1;
+    }
+    return result;
+}
+
 static steps_t get_second_steps(const struct state * const me)
 {
     return 0xFF & (me->step12 >> (me->step1 << 3));
@@ -425,7 +440,7 @@ enum state_status state_status(const struct state * const me)
 steps_t state_get_steps(const struct state * const me)
 {
     if (me->step1 == INVALID_STEP) {
-        return get_first_steps(me);
+        return me->step12 ? get_first_steps(me) : get_free_kicks(me);
     }
 
     if (me->step2 == INVALID_STEP) {
@@ -433,6 +448,40 @@ steps_t state_get_steps(const struct state * const me)
     }
 
     return 0xFF ^ me->lines[me->ball];
+}
+
+static inline int last_step(struct state * restrict const me, const int next)
+{
+    me->ball = next;
+    me->step12 = state_gen_step12(me);
+    if (me->step12 != 0) {
+        me->active ^= 3;
+    }
+    return next;
+}
+
+static inline int free_kick_step(struct state * restrict const me, const enum step step)
+{
+    int ball = me->ball;
+    const int32_t * const free_kicks = me->geometry->free_kicks + QSTEPS * ball;
+    const int32_t * const connections = me->geometry->connections;
+    const int32_t destination = free_kicks[step];
+    if (destination == NO_WAY) {
+        return NO_WAY;
+    }
+
+    const int free_kick_len = me->geometry->free_kick_len;
+    int next = ball;
+    for (int i=0; i<free_kick_len; ++i) {
+        next = connections[QSTEPS * next + step];
+        if (next < 0) {
+            break;
+        }
+        mark_occuped(me, next);
+        mark_diag(me, next, step);
+    }
+
+    return last_step(me, next);
 }
 
 int state_step(struct state * restrict const me, const enum step step)
@@ -454,6 +503,9 @@ int state_step(struct state * restrict const me, const enum step step)
     const steps_t mask = 1 << step;
 
     if (me->step1 == INVALID_STEP) {
+        if (me->step12 == 0) {
+            return free_kick_step(me, step);
+        }
         steps_t steps = get_first_steps(me);
         const int occupied = (steps & mask) == 0;
         if (occupied) {
@@ -486,12 +538,7 @@ int state_step(struct state * restrict const me, const enum step step)
     mark_diag(me, ball, step);
     me->step1 = INVALID_STEP;
     me->step2 = INVALID_STEP;
-    me->ball = next;
-    me->step12 = state_gen_step12(me);
-    if (me->step12 != 0) {
-        me->active ^= 3;
-    }
-    return next;
+    return last_step(me, next);
 }
 
 int state_unstep(struct state * restrict const me, const enum step step)
@@ -728,6 +775,19 @@ int test_step(void)
         { NORTH_WEST, 0, 1,  0, 14 }, { NORTH_WEST, 1}, { NORTH, 1 }, { SOUTH_EAST, 1}, { SOUTH, 1}, { SOUTH_WEST, 1}, { WEST, 1},
         {       EAST, 0, 0,  1, 14 }, { SOUTH, 1}, { SOUTH_WEST, 1}, { WEST, 1},
         { SOUTH_EAST, 0, 0,  2, 13 }, { SOUTH, 1}, { SOUTH_WEST, 1}, { WEST, 1},
+        {       EAST, 0, 1,  3, 13 }, { SOUTH_WEST, 1}, { WEST, 1},
+        {       EAST, 0, 0,  4, 13 }, { WEST, 1},
+        { SOUTH_EAST, 0, 0,  5, 12 }, { NORTH_WEST, 1}, { EAST, 1}, { SOUTH_EAST, 1}, { SOUTH, 1}, { SOUTH_WEST, 1},
+        {       WEST, 0, 0,  4, 12 }, { NORTH_WEST, 1}, { SOUTH_WEST, 1}, { WEST, 1},
+        { NORTH_EAST, 0, 1,  9, 17 }, { SOUTH_WEST, 1},
+        {       WEST, 0, 0,  8, 17 }, { EAST, 1}, { SOUTH_EAST, 1}, { SOUTH, 1},
+        {      NORTH, 0, 0,  8, 18 }, { SOUTH_EAST, 1}, { SOUTH, 1},
+        {      NORTH, 0, 1,  8, 19 }, { SOUTH, 1},
+        {      NORTH, 0, 0,  8, 20 }, { SOUTH, 1},
+        {      NORTH, 0, 0,  8, 21 }, { SOUTH, 1},
+        {      NORTH, 0, 1,  8, 22 }, { SOUTH, 1},
+        {       WEST, 0, 0,  7, 22 }, { EAST, 1}, { SOUTH_EAST, 1},
+        { NORTH_EAST, 1, 0, 0, 0, +1},
         { QSTEPS }
     };
 
