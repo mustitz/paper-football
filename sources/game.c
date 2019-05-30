@@ -646,6 +646,94 @@ int test_magic_step3(void)
 
 int test_step(void)
 {
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) failed, errno = %d.", BW, BH, GW, errno);
+    }
+
+    struct state * restrict const state = create_state(geometry);
+    if (state == NULL) {
+        test_fail("create_state(geometry) failed, errno = %d.", errno);
+    }
+
+    struct test_step {
+        enum step step;
+        int no_way_check;
+        int is_done;
+        int x, y;
+        int status;
+    };
+
+    struct test_step test_steps[] = {
+        {      NORTH, 0, 0,  7, 12 }, { SOUTH, 1},
+        { SOUTH_WEST, 0, 0,  6, 11 }, { NORTH_EAST, 1}, { EAST, 1},
+        {      NORTH, 0, 1,  6, 12 }, { EAST, 1}, { SOUTH_EAST, 1}, { SOUTH, 1},
+        { SOUTH_WEST, 0, 0,  5, 11 }, { NORTH_EAST, 1}, { EAST, 1},
+        { SOUTH_EAST, 0, 0,  6, 10 }, { NORTH_WEST, 1}, { NORTH, 1 }, { NORTH_EAST, 1},
+        {      SOUTH, 0, 1,  6,  9 }, { NORTH, 1 },
+        {       WEST, 0, 0,  5,  9 }, { NORTH_EAST, 1}, { EAST, 1},
+        { NORTH_WEST, 0, 0,  4, 10 }, { NORTH_EAST, 1}, { SOUTH_EAST, 1},
+        {       EAST, 0, 1,  5, 10 }, { NORTH, 1 }, { NORTH_EAST, 1}, { EAST, 1}, { SOUTH_EAST, 1}, { SOUTH, 1}, { SOUTH_WEST, 1}, { WEST, 1},
+        { NORTH_WEST, 0, 0,  4, 11 }, { EAST, 1}, { SOUTH_EAST, 1}, { SOUTH, 1},
+        { SOUTH_WEST, 0, 0,  3, 10 }, { NORTH_EAST, 1}, { EAST, 1},
+        { SOUTH_EAST, 0, 1,  4,  9 }, { NORTH_WEST, 1}, { NORTH, 1 }, { NORTH_EAST, 1}, { EAST, 1},
+        {       WEST, 0, 0,  3,  9 }, { NORTH, 1 }, { NORTH_EAST, 1}, { EAST, 1},
+        { NORTH_WEST, 0, 0,  2, 10 }, { EAST, 1}, { SOUTH_EAST, 1},
+        { NORTH_EAST, 0, 1,  3, 11 }, { EAST, 1}, { SOUTH_EAST, 1}, { SOUTH, 1}, { SOUTH_WEST, 1},
+        { NORTH_WEST, 0, 0,  2, 12 }, { SOUTH_EAST, 1},
+        { NORTH_WEST, 0, 0,  1, 13 }, { SOUTH_EAST, 1},
+        { NORTH_WEST, 0, 1,  0, 14 }, { NORTH_WEST, 1}, { NORTH, 1 }, { SOUTH_EAST, 1}, { SOUTH, 1}, { SOUTH_WEST, 1}, { WEST, 1},
+        {       EAST, 0, 0,  1, 14 }, { SOUTH, 1}, { SOUTH_WEST, 1}, { WEST, 1},
+        { SOUTH_EAST, 0, 0,  2, 13 }, { SOUTH, 1}, { SOUTH_WEST, 1}, { WEST, 1},
+        { QSTEPS }
+    };
+
+    const struct test_step * test_step = test_steps;
+    for (; test_step->step != QSTEPS; ++test_step)
+    {
+        const int prev_active = state->active;
+        const int prev_ball = state->ball;
+        const int index = test_step - test_steps;
+
+        const int next = state_step(state, test_step->step);
+        if (test_step->no_way_check) {
+            if (test_step->status == 0) {
+                if (next != NO_WAY) {
+                    test_fail("state_step on move %d: NO_WAY expected, but next = %d.", index, next);
+                }
+                if (state->active != prev_active) {
+                    test_fail("state_step on move %d: active corrupted in NO_WAY test, active=%d, expected=%d.", index, state->active, prev_active);
+                }
+                if (state->ball != prev_ball) {
+                    test_fail("state_step on move %d: ball corrupted in NO_WAY test, active=%d, expected=%d.", index, state->ball, prev_ball);
+                }
+            } else {
+                if (test_step->status > 0 && next != GOAL_1) {
+                    test_fail("state_step on move %d: next is %d, but GOAL_1 (%d) expected..", index, next, GOAL_1);
+                }
+                if (test_step->status < 0 && next != GOAL_2) {
+                    test_fail("state_step on move %d: next is %d, but GOAL_2 (%d) expected..", index, next, GOAL_2);
+                }
+                if (next != state->ball) {
+                    test_fail("state_step on move %d: %d is returned, but state->ball is %d.", index, next, state->ball);
+                }
+            }
+        } else {
+            const int expected = make_point(test_step->x, test_step->y);
+            if (next != expected) {
+                test_fail("state_step on move %d: %d is returned, but %d expected.", index, next, expected);
+            }
+            if (next != state->ball) {
+                test_fail("state_step on move %d: %d is returned, but state->ball is %d.", index, next, state->ball);
+            }
+            if (test_step->is_done == (state->active == prev_active)) {
+                test_fail("state_step on move %d: is_done=%d, but old %d, new %d.", index, test_step->is_done, prev_active, state->active);
+            }
+        }
+    }
+
+    destroy_state(state);
+    destroy_geometry(geometry);
     return 0;
 }
 
