@@ -157,6 +157,8 @@ static void free_ai(struct mcts_ai * restrict const me)
     if (me->hist) {
         free(me->hist);
     }
+    free_state(me->state);
+    free_state(me->backup);
     free(me);
 }
 
@@ -205,15 +207,8 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
         init_param(me, i);
     }
 
-    state->geometry = geometry;
-    state->lines = lines;
-    state->active = 1;
-    state->ball = qpoints / 2;
-
-    backup->geometry = geometry;
-    backup->lines = backup_lines;
-
-    init_lines(geometry, lines);
+    init_state(state, geometry, lines);
+    init_state(backup, geometry, backup_lines);
     return me;
 }
 

@@ -220,7 +220,7 @@ void destroy_geometry(struct geometry * restrict const me)
 
 
 
-void init_lines(
+static void init_lines(
     const struct geometry * const geometry,
     uint8_t * restrict const lines)
 {
@@ -394,10 +394,35 @@ static steps_t get_second_steps(const struct state * const me)
     return 0xFF & (me->step12 >> (me->step1 << 3));
 }
 
-struct state * create_state(const struct geometry * const geometry)
+void init_state(
+    struct state * restrict const me,
+    const struct geometry * const geometry,
+    uint8_t * const lines)
 {
     const uint32_t qpoints = geometry->qpoints;
     const int ball = qpoints / 2;
+
+    me->geometry = geometry;
+    me->active = 1;
+    me->ball = ball;
+    me->ball_before_goal = NO_WAY;
+    me->lines = lines;
+
+    init_lines(geometry, lines);
+
+    me->step_changes = NULL;
+    me->qstep_changes = 0;
+    me->step_changes_capacity = 0;
+
+    me->step1 = INVALID_STEP;
+    me->step2 = INVALID_STEP;
+    mark_occuped(me, ball);
+    me->step12 = state_gen_step12(me);
+}
+
+struct state * create_state(const struct geometry * const geometry)
+{
+    const uint32_t qpoints = geometry->qpoints;
 
     const size_t sizes[2] = { sizeof(struct state), qpoints };
     void * ptrs[2];
@@ -408,31 +433,20 @@ struct state * create_state(const struct geometry * const geometry)
     }
 
     struct state * restrict const me = data;
-    me->geometry = geometry;
-    me->active = 1;
-    me->ball = ball;
-    me->ball_before_goal = NO_WAY;
-    me->lines = ptrs[1];
-
-    init_lines(geometry, me->lines);
-
-    me->step_changes = NULL;
-    me->qstep_changes = 0;
-    me->step_changes_capacity = 0;
-
-    me->step1 = INVALID_STEP;
-    me->step2 = INVALID_STEP;
-    mark_occuped(me, ball);
-    me->step12 = state_gen_step12(me);
-
+    init_state(me, geometry, ptrs[1]);
     return me;
 }
 
-void destroy_state(struct state * restrict const me)
+void free_state(struct state * restrict const me)
 {
     if (me->step_changes) {
         free(me->step_changes);
     }
+}
+
+void destroy_state(struct state * restrict const me)
+{
+    free_state(me);
     free(me);
 }
 
@@ -645,11 +659,12 @@ void free_history(struct history * restrict const me)
 
 int history_push(struct history * restrict const me, const struct state * state)
 {
-    if (state->qstep_changes == 0) {
+    const unsigned int state_qstep_changes = state->qstep_changes;
+    if (state_qstep_changes == 0) {
         return 0;
     }
 
-    const unsigned int required_capacity = me->qstep_changes + state->qstep_changes;
+    const unsigned int required_capacity = me->qstep_changes + state_qstep_changes;
     if (required_capacity > me->capacity) {
         unsigned int new_capacity = me->capacity;
         do {
@@ -661,8 +676,12 @@ int history_push(struct history * restrict const me, const struct state * state)
             return errno;
         }
         me->capacity = new_capacity;
+        me->step_changes = ptr;
     }
 
+    const size_t sz = state_qstep_changes * sizeof(struct step_change);
+    memcpy(me->step_changes + me->qstep_changes, state->step_changes, sz);
+    me->qstep_changes += state_qstep_changes;
     return 0;
 }
 

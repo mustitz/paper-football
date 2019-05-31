@@ -43,21 +43,17 @@ struct random_ai * create_random_ai(const struct geometry * const geometry)
     me->backup = backup;
     me->error_buf = error_buf;
 
-    state->geometry = geometry;
-    state->lines = lines;
-    state->active = 1;
-    state->ball = qpoints / 2;
-
-    backup->geometry = geometry;
-    backup->lines = backup_lines;
-
-    init_lines(geometry, lines);
+    init_state(state, geometry, lines);
+    init_state(backup, geometry, backup_lines);
     return me;
 }
 
 void free_random_ai(struct ai * restrict const ai)
 {
+    struct random_ai * restrict const me = ai->data;
     free_history(&ai->history);
+    free_state(me->state);
+    free_state(me->backup);
     free(ai->data);
 }
 
@@ -340,25 +336,25 @@ int test_random_ai(void)
         }
     }
 
-    enum step bad_steps[2] = { SOUTH_EAST, EAST };
+    enum step bad_steps[2] = { EAST, NORTH };
     status = ai->do_steps(ai, 2, bad_steps);
     if (status == 0) {
-        test_fail("do_steps(SE E) failture expected, but statis is 0.");
+        test_fail("do_steps(E N) failture expected, but statis is 0.");
     }
     if (ai->error == NULL) {
-        test_fail("do_steps(SE E) failture, but ai->error is not set.");
+        test_fail("do_steps(E N) failture, but ai->error is not set.");
     }
     if (strlen(ai->error) >= ERROR_BUF_SZ) {
-        test_fail("do_steps(SE E) failture, error message too large.");
+        test_fail("do_steps(E N) failture, error message too large.");
     }
 
-    enum step good_steps[4] = { SOUTH_EAST, NORTH_EAST, SOUTH_EAST, SOUTH_EAST };
+    enum step good_steps[4] = { NORTH, SOUTH_WEST, SOUTH_EAST, SOUTH_EAST };
     status = ai->do_steps(ai, 4, good_steps);
     if (status != 0) {
-        test_fail("do_steps(SE NE SE SE) failed with status %d.", status);
+        test_fail("do_steps(N SW SE SE) failed with status %d.", status);
     }
     if (ai->error != NULL) {
-        test_fail("do_steps(SE NE SE SE) is OK, but ai->error is set.");
+        test_fail("do_steps(N SW SE SE) is OK, but ai->error is set.");
     }
 
     ai->free(ai);

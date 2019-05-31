@@ -99,9 +99,11 @@ enum state_status
     WIN_2
 };
 
-void init_lines(
+void init_state(
+    struct state * restrict const me,
     const struct geometry * const geometry,
-    uint8_t * restrict const lines);
+    uint8_t * const lines);
+void free_state(struct state * restrict const me);
 
 struct state * create_state(const struct geometry * const geometry);
 void destroy_state(struct state * restrict const me);
