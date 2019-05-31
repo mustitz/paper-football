@@ -272,10 +272,11 @@ static void set_ai(
     const struct step_change * step_change = me->history.step_changes;
     const struct step_change * const end = step_change + me->history.qstep_changes;
     for (; step_change != end; ++step_change) {
-        if (step_change->point >= 0) {
+        const int what = step_change->what;
+        if (what != CHANGE_PASS && what != CHANGE_FREE_KICK) {
             continue;
         }
-        const int status = storage.do_step(&storage, step_change->step);
+        const int status = storage.do_step(&storage, step_change->what);
         if (status != 0) {
             fprintf(stderr, "Cannot set AI: cannot apply history, status = %d.\n", status);
             storage.free(&storage);
@@ -319,10 +320,11 @@ static void restore_ai(
 	const struct step_change * step_change = me->history.step_changes;
 	const struct step_change * const end = step_change + me->history.qstep_changes;
 	for (; step_change != end; ++step_change) {
-		if (step_change->point >= 0) {
+        const int what = step_change->what;
+		if (what != CHANGE_PASS && what != CHANGE_FREE_KICK) {
 			continue;
 		}
-		const int status = ai->do_step(ai, step_change->step);
+		const int status = ai->do_step(ai, step_change->data);
         if (status != 0) {
             fprintf(stderr, "Cannot apply history to AI, AI turned off.\n");
             free_ai(me);
@@ -645,10 +647,11 @@ void process_step(struct cmd_parser * restrict const me)
             const struct step_change * ptr = me->history.step_changes + history_qstep_changes;
             const struct step_change * const end = me->history.step_changes + me->history.qstep_changes;
             for (; ptr != end; ++ptr) {
-                if (ptr->point >= 0) {
+                const int what = ptr->what;
+                if (what != CHANGE_PASS && what != CHANGE_FREE_KICK) {
                     continue;
                 }
-                const int status = me->ai->do_step(me->ai, ptr->step);
+                const int status = me->ai->do_step(me->ai, ptr->data);
                 if (status != 0) {
                     error(lp, "AI applying step sequence failed with code %d.", status);
                     return restore_backup(me, history_qstep_changes);
@@ -670,10 +673,11 @@ void process_history(struct cmd_parser * restrict const me)
     const struct step_change * const end = ptr + me->history.qstep_changes;
     const char * delimeter = "";
     for (; ptr != end; ++ptr) {
-        if (ptr->point >= 0) {
+        const int what = ptr->what;
+        if (what != CHANGE_PASS && what != CHANGE_FREE_KICK) {
             continue;
         }
-        printf("%s%s", delimeter, step_names[ptr->step]);
+        printf("%s%s", delimeter, step_names[ptr->data]);
         delimeter = " ";
     }
 

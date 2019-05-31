@@ -34,8 +34,15 @@ enum step {
 
 #define INVALID_STEP QSTEPS
 #define ACTIVE_STEP_FREE_KICK  -1
-#define PASS_STEP              -1
-#define FREE_KICK_STEP         -2
+
+#define CHANGE_PASS            -1
+#define CHANGE_FREE_KICK       -2
+#define CHANGE_STEP1           -3
+#define CHANGE_STEP2           -4
+#define CHANGE_STEP_12_LO      -5
+#define CHANGE_STEP_12_HI      -6
+#define CHANGE_ACTIVE          -7
+#define CHANGE_BALL            -8
 
 #define BACK(s) ((enum step)(((s)+4) & 0x07))
 
@@ -82,7 +89,6 @@ struct state
     uint8_t * lines;
     int active;
     int ball;
-    int active_step_done;
     int ball_before_goal;
     enum step step1;
     enum step step2;
@@ -124,8 +130,8 @@ int state_rollback(
 
 struct step_change
 {
-    int point;
-    enum step step;
+    int what;
+    uint32_t data;
 };
 
 struct history

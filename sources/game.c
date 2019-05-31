@@ -241,19 +241,18 @@ static void init_lines(
 
 static inline int add_step_change(
     struct state * restrict const me,
-    const int point,
-    enum step step)
+    const int what,
+    uint32_t data)
 {
-    uint8_t * restrict const lines = me->lines;
-    uint8_t mask = 1 << step;
-    if (point >= 0) {
-        const int is_set = (lines[point] & mask) != 0;
+    if (what >= 0) {
+        uint8_t * restrict const lines = me->lines;
+        const uint8_t mask = 1 << data;
+        const int is_set = (lines[what] & mask) != 0;
         if (is_set) {
             return 0;
         }
+        lines[what] |= mask;
     }
-
-    lines[point] |= mask;
 
     const unsigned int capacity = me->step_changes_capacity;
     const unsigned int qitems = me->qstep_changes;
@@ -269,8 +268,8 @@ static inline int add_step_change(
     }
 
     struct step_change * restrict const step_change = me->step_changes + qitems;
-    step_change->point = point;
-    step_change->step = step;
+    step_change->what = what;
+    step_change->data = data;
     ++me->qstep_changes;
     return 0;
 }
@@ -502,13 +501,21 @@ steps_t state_get_steps(const struct state * const me)
     return 0xFF ^ me->lines[me->ball];
 }
 
-static inline int last_step(struct state * restrict const me, const int next)
+static inline int last_step(
+    struct state * restrict const me,
+    const int what,
+    const enum step step,
+    const int next)
 {
     me->ball = next;
+    add_step_change(me, CHANGE_STEP_12_LO, me->step12 & 0xFFFFFFFFull);
+    add_step_change(me, CHANGE_STEP_12_HI, me->step12 >> 32);
     me->step12 = state_gen_step12(me);
     if (me->step12 != 0) {
+        add_step_change(me, CHANGE_ACTIVE, me->active);
         me->active ^= 3;
     }
+    add_step_change(me, what, step);
     return next;
 }
 
@@ -534,8 +541,7 @@ static inline int free_kick_step(struct state * restrict const me, const enum st
         mark_diag(me, next, step);
     }
 
-    add_step_change(me, FREE_KICK_STEP, step);
-    return last_step(me, next);
+    return last_step(me, CHANGE_FREE_KICK, step, next);
 }
 
 int state_step(struct state * restrict const me, const enum step step)
@@ -551,9 +557,10 @@ int state_step(struct state * restrict const me, const enum step step)
     const int32_t next = connections[QSTEPS*ball + step];
     if (next < 0) {
         if (next != NO_WAY) {
+            add_step_change(me, CHANGE_BALL, me->ball);
             me->ball_before_goal = me->ball;
             me->ball = next;
-            add_step_change(me, PASS_STEP, step);
+            add_step_change(me, CHANGE_PASS, step);
         }
         return next;
     }
@@ -571,8 +578,9 @@ int state_step(struct state * restrict const me, const enum step step)
         }
         mark_occuped(me, next);
         mark_diag(me, ball, step);
+        add_step_change(me, CHANGE_STEP1, me->step1);
         me->step1 = step;
-        add_step_change(me, PASS_STEP, next);
+        add_step_change(me, CHANGE_PASS, step);
         return me->ball = next;
     }
 
@@ -584,8 +592,9 @@ int state_step(struct state * restrict const me, const enum step step)
         }
         mark_occuped(me, next);
         mark_diag(me, ball, step);
+        add_step_change(me, CHANGE_STEP2, me->step2);
         me->step2 = step;
-        add_step_change(me, PASS_STEP, next);
+        add_step_change(me, CHANGE_PASS, step);
         return me->ball = next;
     }
 
@@ -596,9 +605,11 @@ int state_step(struct state * restrict const me, const enum step step)
     }
     mark_occuped(me, next);
     mark_diag(me, ball, step);
+    add_step_change(me, CHANGE_STEP1, me->step1);
+    add_step_change(me, CHANGE_STEP2, me->step2);
     me->step1 = INVALID_STEP;
     me->step2 = INVALID_STEP;
-    return last_step(me, next);
+    return last_step(me, CHANGE_PASS, step, next);
 }
 
 int state_rollback(
@@ -606,29 +617,49 @@ int state_rollback(
     const struct step_change * const changes,
     unsigned int qchanges)
 {
+    if (qchanges == 0) {
+        return 0;
+    }
+
     const struct geometry * const geometry = me->geometry;
     const int32_t * const connections = geometry->connections;
     const int32_t * const free_kicks = geometry->free_kicks;
 
     uint8_t * restrict const lines = me->lines;
-    const struct step_change * ptr = changes;
-    const struct step_change * const end = ptr + qchanges;
-    for (; ptr != end; ++ptr) {
+    const struct step_change * ptr = changes + qchanges;
+    const struct step_change * const end = changes;
+    while (ptr-- != end) {
         int ball = me->ball;
-        switch (ptr->point) {
-            case PASS_STEP:
-                ball = connections[QSTEPS*ball + BACK(ptr->step)];
+        switch (ptr->what) {
+            case CHANGE_PASS:
+                ball = ball < 0 ? ball : connections[QSTEPS*ball + BACK(ptr->data)];
                 break;
-            case FREE_KICK_STEP:
-                ball = free_kicks[QSTEPS*ball + BACK(ptr->step)];
+            case CHANGE_FREE_KICK:
+                ball = ball < 0 ? ball : free_kicks[QSTEPS*ball + BACK(ptr->data)];
+                break;
+            case CHANGE_STEP1:
+                me->step1 = ptr->data;
+                break;
+            case CHANGE_STEP2:
+                me->step2 = ptr->data;
+                break;
+            case CHANGE_ACTIVE:
+                me->active = ptr->data;
+                break;
+            case CHANGE_STEP_12_LO:
+                me->step12 &= 0xFFFFFFFF00000000ull;
+                me->step12 |= ptr->data;
+                break;
+            case CHANGE_STEP_12_HI:
+                me->step12 &= 0xFFFFFFFFull;
+                me->step12 |= (uint64_t)ptr->data << 32;
+                break;
+            case CHANGE_BALL:
+                ball = ptr->data;
                 break;
             default:
-                lines[ptr->point] ^= 1 << ptr->step;
+                lines[ptr->what] ^= 1 << ptr->data;
                 continue;
-        }
-
-        if (ball < 0) {
-            return EINVAL;
         }
 
         me->ball = ball;

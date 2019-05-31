@@ -166,7 +166,8 @@ int random_ai_undo_steps(
     }
 
     const struct step_change * last_change = history->step_changes + history->qstep_changes;
-    if (last_change[-1].point >= 0) {
+    const int what = last_change[-1].what;
+    if (what != CHANGE_PASS && what != CHANGE_FREE_KICK) {
         return EINVAL;
     }
 
@@ -176,7 +177,8 @@ int random_ai_undo_steps(
     const struct step_change * const end = history->step_changes;
     for (;;) {
         if (ptr == end) break;
-        if (ptr[-1].point < 0) {
+        const int what = ptr[-1].what;
+        if (what == CHANGE_PASS || what == CHANGE_FREE_KICK) {
             if (qsteps == 0) {
                 break;
             }
