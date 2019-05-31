@@ -259,20 +259,19 @@ int mcts_ai_do_step(
     ai->error = NULL;
     struct mcts_ai * restrict const me = ai->data;
 
-    struct history * restrict const history = &ai->history;
-    const int status = history_push(history, step);
-    if (status != 0) {
-        snprintf(me->error_buf, ERROR_BUF_SZ, "Bad history push, return code is %d.", status);
-        return status;
-    }
-
     const int next = state_step(me->state, step);
 
     if (next == NO_WAY) {
         snprintf(me->error_buf, ERROR_BUF_SZ, "Direction occupied.");
         ai->error = me->error_buf;
-        --history->qsteps;
         return EINVAL;
+    }
+
+    struct history * restrict const history = &ai->history;
+    const int status = history_push(history, me->state);
+    if (status != 0) {
+        snprintf(me->error_buf, ERROR_BUF_SZ, "Bad history push, return code is %d.", status);
+        return status;
     }
 
     return 0;
@@ -294,15 +293,7 @@ int mcts_ai_do_steps(
     struct mcts_ai * restrict const me = ai->data;
 
     struct history * restrict const history = &ai->history;
-    const unsigned int old_qsteps = history->qsteps;
-    for (unsigned int i=0; i<qsteps; ++i) {
-        const int status = history_push(history, steps[i]);
-        if (status != 0) {
-            snprintf(me->error_buf, ERROR_BUF_SZ, "Bad history push, return code is %d.", status);
-            history->qsteps = old_qsteps;
-            return status;
-        }
-    }
+    const unsigned int old_qstep_changes = history->qstep_changes;
 
     state_copy(me->backup, me->state);
 
@@ -315,65 +306,69 @@ int mcts_ai_do_steps(
             snprintf(me->error_buf, ERROR_BUF_SZ, "Error on step %d: direction  occupied.", index);
             ai->error = me->error_buf;
             restore_backup(me);
-            history->qsteps = old_qsteps;
+            history->qstep_changes = old_qstep_changes;
             return EINVAL;
+        }
+
+        const int status = history_push(history, me->state);
+        if (status != 0) {
+            const int index = ptr - steps;
+            snprintf(me->error_buf, ERROR_BUF_SZ, "Bad history push on step %d, return code is %d.", index, status);
+            ai->error = me->error_buf;
+            restore_backup(me);
+            history->qstep_changes = old_qstep_changes;
+            return status;
         }
     }
 
-    return 0;
-}
-
-int mcts_ai_undo_step(
-    struct ai * restrict const ai)
-{
-    ai->error = NULL;
-    struct mcts_ai * restrict const me = ai->data;
-
-    struct history * restrict const history = &ai->history;
-    if (history->qsteps == 0) {
-        return EINVAL;
-    }
-
-    const enum step step = history->steps[history->qsteps-1];
-    const int next = state_unstep(me->state, step);
-    if (next < 0) {
-        snprintf(me->error_buf, ERROR_BUF_SZ, "Impossible unstep.");
-        ai->error = me->error_buf;
-        return EINVAL;
-    }
-
-    --history->qsteps;
     return 0;
 }
 
 int mcts_ai_undo_steps(
     struct ai * restrict const ai,
-    const unsigned int qsteps)
+    unsigned int qsteps)
 {
+    if (qsteps == 0) {
+        return 0;
+    }
+
     ai->error = NULL;
     struct mcts_ai * restrict const me = ai->data;
 
     struct history * restrict const history = &ai->history;
-    if (history->qsteps < qsteps) {
+    if (history->qstep_changes == 0) {
         return EINVAL;
     }
 
-    state_copy(me->backup, me->state);
-
-    for (unsigned int i=0; i<qsteps; ++i) {
-        const unsigned int index = history->qsteps - i - 1;
-        const enum step step = history->steps[index];
-        const int ball = state_unstep(me->state, step);
-        if (ball < 0) {
-            snprintf(me->error_buf, ERROR_BUF_SZ, "Error on unstep %d: impossible.", i);
-            ai->error = me->error_buf;
-            restore_backup(me);
-            return EINVAL;
-        }
+    const struct step_change * last_change = history->step_changes + history->qstep_changes;
+    if (last_change[-1].point >= 0) {
+        return EINVAL;
     }
 
-    history->qsteps -= qsteps;
+    --qsteps;
+
+    const struct step_change * ptr = last_change - 1;
+    const struct step_change * const end = history->step_changes;
+    for (;;) {
+        if (ptr == end) break;
+        if (ptr[-1].point < 0) {
+            if (qsteps == 0) {
+                break;
+            }
+            --qsteps;
+        }
+        --ptr;
+    }
+
+    const unsigned int qstep_changes = last_change - ptr;
+    state_rollback(me->state, ptr, qstep_changes);
+    history->qstep_changes -= qstep_changes;
     return 0;
+}
+
+int mcts_ai_undo_step(struct ai * restrict const ai)
+{
+    return mcts_ai_undo_steps(ai, 1);
 }
 
 enum step mcts_ai_go(
@@ -1133,13 +1128,15 @@ int test_mcts_ai_unstep(void)
         test_fail("ai->set_param fails with code %d, %s.", status, ai->error);
     }
 
+    unsigned int qsteps = 0;
     const struct state * const state = ai->get_state(ai);
     while (state_status(state) == IN_PROGRESS) {
         const enum step step = ai->go(ai, NULL);
         ai->do_step(ai, step);
+        ++qsteps;
     }
 
-    status = ai->undo_steps(ai, ai->history.qsteps);
+    status = ai->undo_steps(ai, qsteps);
     if (status != 0) {
         test_fail("undo steps failed, status %d, error: %s", status, ai->error);
     }

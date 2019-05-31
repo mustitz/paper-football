@@ -37,7 +37,7 @@ enum step {
 #define PASS_STEP              -1
 #define FREE_KICK_STEP         -2
 
-#define BACK(step) ((enum step)((step+4) & 0x07))
+#define BACK(s) ((enum step)(((s)+4) & 0x07))
 
 typedef uint32_t steps_t;
 
@@ -113,7 +113,10 @@ int state_copy(
 enum state_status state_status(const struct state * const me);
 steps_t state_get_steps(const struct state * const me);
 int state_step(struct state * restrict const me, const enum step step);
-int state_unstep(struct state * restrict const me, const enum step step);
+int state_rollback(
+    struct state * restrict const me,
+    const struct step_change * const changes,
+    unsigned int qchanges);
 
 
 
@@ -125,14 +128,14 @@ struct step_change
 
 struct history
 {
-    unsigned int qsteps;
+    unsigned int qstep_changes;
     unsigned int capacity;
-    enum step * steps;
+    struct step_change * step_changes;
 };
 
 void init_history(struct history * restrict const me);
 void free_history(struct history * restrict const me);
-int history_push(struct history * restrict const me, const enum step step);
+int history_push(struct history * restrict const me, const struct state * const state);
 
 
 

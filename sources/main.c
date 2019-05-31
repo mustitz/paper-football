@@ -158,7 +158,7 @@ static int new_game(
     me->state = state;
     me->backup = backup;
 
-    me->history.qsteps = 0;
+    me->history.qstep_changes = 0;
     return 0;
 }
 
@@ -169,7 +169,7 @@ static void restore_backup(
     struct state * old_state = me->state;
     me->state = me->backup;
     me->backup = old_state;
-    me->history.qsteps = history_qsteps;
+    me->history.qstep_changes = history_qsteps;
 }
 
 static int is_match(
@@ -261,17 +261,21 @@ static void set_ai(
     struct cmd_parser * restrict const me,
     const struct ai_desc * const ai_desc)
 {
-    int status;
     struct ai storage;
 
-    status = ai_desc->init_ai(&storage, me->geometry);
+    const int status = ai_desc->init_ai(&storage, me->geometry);
     if (status != 0) {
         fprintf(stderr, "Cannot set AI: init failed with code %d.\n", status);
         return;
     }
 
-    if (me->history.qsteps > 0) {
-        status = storage.do_steps(&storage, me->history.qsteps, me->history.steps);
+    const struct step_change * step_change = me->history.step_changes;
+    const struct step_change * const end = step_change + me->history.qstep_changes;
+    for (; step_change != end; ++step_change) {
+        if (step_change->point >= 0) {
+            continue;
+        }
+        const int status = storage.do_step(&storage, step_change->step);
         if (status != 0) {
             fprintf(stderr, "Cannot set AI: cannot apply history, status = %d.\n", status);
             storage.free(&storage);
@@ -302,22 +306,28 @@ static void restore_ai(
     struct cmd_parser * restrict const me,
     const unsigned int history_qsteps)
 {
-    int status;
     struct ai * restrict const ai = me->ai;
     restore_backup(me, history_qsteps);
 
-    status = ai->reset(ai, me->geometry);
+    const int status = ai->reset(ai, me->geometry);
     if (status != 0) {
         fprintf(stderr, "Cannot reset AI, AI turned off.\n");
         free_ai(me);
         return;
     }
 
-    status = ai->do_steps(ai, me->history.qsteps, me->history.steps);
-    if (status != 0) {
-        fprintf(stderr, "Cannot apply history to AI, AI turned off.\n");
-        free_ai(me);
-        return;
+	const struct step_change * step_change = me->history.step_changes;
+	const struct step_change * const end = step_change + me->history.qstep_changes;
+	for (; step_change != end; ++step_change) {
+		if (step_change->point >= 0) {
+			continue;
+		}
+		const int status = ai->do_step(ai, step_change->step);
+        if (status != 0) {
+            fprintf(stderr, "Cannot apply history to AI, AI turned off.\n");
+            free_ai(me);
+            return;
+        }
     }
 }
 
@@ -339,7 +349,7 @@ static void ai_go(struct cmd_parser * restrict const me)
     }
 
     state_copy(me->backup, state);
-    const unsigned int history_qsteps = me->history.qsteps;
+    const unsigned int history_qstep_changes = me->history.qstep_changes;
 
     const char * separator = "";
     for (;;) {
@@ -347,15 +357,17 @@ static void ai_go(struct cmd_parser * restrict const me)
         if (ball == NO_WAY) {
             printf("\n");
             fprintf(stderr, "ai_go: game state cannot follow step %s.\n", step_names[step]);
-            restore_ai(me, history_qsteps);
+            restore_ai(me, history_qstep_changes);
             return;
         }
+
+        history_push(&me->history, state);
 
         const int status = me->ai->do_step(me->ai, step);
         if (status != 0) {
             printf("\n");
             fprintf(stderr, "ai_go: AI cannot follow himself on step %s.\n", step_names[step]);
-            restore_ai(me, history_qsteps);
+            restore_ai(me, history_qstep_changes);
             return;
         }
 
@@ -376,7 +388,7 @@ static void ai_go(struct cmd_parser * restrict const me)
         if (step == INVALID_STEP) {
             printf("\n");
             fprintf(stderr, "AI move: invalid step.\n");
-            restore_ai(me, history_qsteps);
+            restore_ai(me, history_qstep_changes);
             return;
         }
     }
@@ -600,42 +612,47 @@ void process_step(struct cmd_parser * restrict const me)
         }
     } else {
         state_copy(me->backup, me->state);
-        const unsigned int history_qsteps = me->history.qsteps;
+        const unsigned int history_qstep_changes = me->history.qstep_changes;
         do {
             int status = parser_read_id(lp);
             if (status != 0) {
                 error(lp, "Step direction expected.");
-                return restore_backup(me, history_qsteps);
+                return restore_backup(me, history_qstep_changes);
             }
 
             enum step step = find_step(lp->lexem_start, lp->current - lp->lexem_start);
             if (step == QSTEPS) {
                 error(lp, "Invalid step direction, only NW, N, NE, E, SE, S, SW are supported.");
-                return restore_backup(me, history_qsteps);
+                return restore_backup(me, history_qstep_changes);
             }
 
             const int ball = state_step(me->state, step);
             if (ball == NO_WAY) {
                 error(lp, "Direction occupied.");
-                return restore_backup(me, history_qsteps);
+                return restore_backup(me, history_qstep_changes);
             }
 
-            status = history_push(&me->history, step);
+            status = history_push(&me->history, me->state);
             if (status != 0) {
                 error(lp, "history_push failed with code %d.", status);
-                return restore_backup(me, history_qsteps);
+                return restore_backup(me, history_qstep_changes);
             }
 
             parser_skip_spaces(lp);
         } while (!parser_check_eol(lp));
 
         if (me->ai) {
-            const int qnew_steps = me->history.qsteps - history_qsteps;
-            const enum step * const new_steps = me->history.steps + history_qsteps;
-            const int status = me->ai->do_steps(me->ai, qnew_steps, new_steps);
-            if (status != 0) {
-                error(lp, "AI applying step sequence failed with code %d.", status);
-                return restore_backup(me, history_qsteps);
+            const struct step_change * ptr = me->history.step_changes + history_qstep_changes;
+            const struct step_change * const end = me->history.step_changes + me->history.qstep_changes;
+            for (; ptr != end; ++ptr) {
+                if (ptr->point >= 0) {
+                    continue;
+                }
+                const int status = me->ai->do_step(me->ai, ptr->step);
+                if (status != 0) {
+                    error(lp, "AI applying step sequence failed with code %d.", status);
+                    return restore_backup(me, history_qstep_changes);
+                }
             }
         }
     }
@@ -649,17 +666,20 @@ void process_history(struct cmd_parser * restrict const me)
         return;
     }
 
-    if (me->history.qsteps == 0) {
-        return;
+    const struct step_change * ptr = me->history.step_changes;
+    const struct step_change * const end = ptr + me->history.qstep_changes;
+    const char * delimeter = "";
+    for (; ptr != end; ++ptr) {
+        if (ptr->point >= 0) {
+            continue;
+        }
+        printf("%s%s", delimeter, step_names[ptr->step]);
+        delimeter = " ";
     }
 
-    const enum step * ptr = me->history.steps;
-    const enum step * const end = ptr + me->history.qsteps;
-    printf("%s", step_names[*ptr++]);
-    while (ptr != end) {
-        printf(" %s", step_names[*ptr++]);
+    if (delimeter[0] == ' ') {
+        printf("\n");
     }
-    printf("\n");
 }
 
 void process_set_ai_param(struct cmd_parser * restrict const me)

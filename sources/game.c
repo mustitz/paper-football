@@ -587,6 +587,41 @@ int state_step(struct state * restrict const me, const enum step step)
     return last_step(me, next);
 }
 
+int state_rollback(
+    struct state * restrict const me,
+    const struct step_change * const changes,
+    unsigned int qchanges)
+{
+    const struct geometry * const geometry = me->geometry;
+    const int32_t * const connections = geometry->connections;
+    const int32_t * const free_kicks = geometry->free_kicks;
+
+    uint8_t * restrict const lines = me->lines;
+    const struct step_change * ptr = changes;
+    const struct step_change * const end = ptr + qchanges;
+    for (; ptr != end; ++ptr) {
+        int ball = me->ball;
+        switch (ptr->point) {
+            case PASS_STEP:
+                ball = connections[QSTEPS*ball + BACK(ptr->step)];
+                break;
+            case FREE_KICK_STEP:
+                ball = free_kicks[QSTEPS*ball + BACK(ptr->step)];
+                break;
+            default:
+                lines[ptr->point] ^= 1 << ptr->step;
+                continue;
+        }
+
+        if (ball < 0) {
+            return EINVAL;
+        }
+
+        me->ball = ball;
+    }
+    return 0;
+}
+
 int state_unstep(struct state * restrict const me, const enum step step)
 {
     return INVALID_STEP;
@@ -596,14 +631,38 @@ int state_unstep(struct state * restrict const me, const enum step step)
 
 void init_history(struct history * restrict const me)
 {
+    me->qstep_changes = 0;
+    me->capacity = 0;
+    me->step_changes = NULL;
 }
 
 void free_history(struct history * restrict const me)
 {
+    if (me->step_changes != NULL) {
+        free(me->step_changes);
+    }
 }
 
-int history_push(struct history * restrict const me, const enum step step)
+int history_push(struct history * restrict const me, const struct state * state)
 {
+    if (state->qstep_changes == 0) {
+        return 0;
+    }
+
+    const unsigned int required_capacity = me->qstep_changes + state->qstep_changes;
+    if (required_capacity > me->capacity) {
+        unsigned int new_capacity = me->capacity;
+        do {
+            new_capacity = 256 + 2*new_capacity;
+        } while (required_capacity > new_capacity);
+        const size_t sz = sizeof(struct step_change) * new_capacity;
+        void * ptr = realloc(me->step_changes, sz);
+        if (ptr == NULL) {
+            return errno;
+        }
+        me->capacity = new_capacity;
+    }
+
     return 0;
 }
 
