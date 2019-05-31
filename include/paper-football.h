@@ -34,6 +34,8 @@ enum step {
 
 #define INVALID_STEP QSTEPS
 #define ACTIVE_STEP_FREE_KICK  -1
+#define PASS_STEP              -1
+#define FREE_KICK_STEP         -2
 
 #define BACK(step) ((enum step)((step+4) & 0x07))
 
@@ -85,6 +87,9 @@ struct state
     enum step step1;
     enum step step2;
     uint64_t step12;
+    struct step_change * step_changes;
+    unsigned int qstep_changes;
+    unsigned int step_changes_capacity;
 };
 
 enum state_status
@@ -111,6 +116,12 @@ int state_step(struct state * restrict const me, const enum step step);
 int state_unstep(struct state * restrict const me, const enum step step);
 
 
+
+struct step_change
+{
+    int point;
+    enum step step;
+};
 
 struct history
 {
