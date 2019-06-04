@@ -669,11 +669,6 @@ int state_rollback(
     return 0;
 }
 
-int state_unstep(struct state * restrict const me, const enum step step)
-{
-    return INVALID_STEP;
-}
-
 
 
 void init_history(struct history * restrict const me)
@@ -1045,11 +1040,6 @@ int test_history(void)
     destroy_state(state);
     destroy_geometry(geometry);
     free_history(me);
-    return 0;
-}
-
-int test_unstep(void)
-{
     return 0;
 }
 
