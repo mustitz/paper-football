@@ -417,6 +417,8 @@ void init_state(
     me->step2 = INVALID_STEP;
     mark_occuped(me, ball);
     me->step12 = state_gen_step12(me);
+
+    me->qstep_changes = 0;
 }
 
 struct state * create_state(const struct geometry * const geometry)
@@ -995,8 +997,54 @@ int test_step(void)
     return 0;
 }
 
+#define TEST_QSTEPS   4096
+
 int test_history(void)
 {
+    struct history storage;
+    struct history * restrict const me = &storage;
+    init_history(me);
+
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) failed, errno = %d.", BW, BH, GW, errno);
+    }
+
+    struct state * restrict const state = create_state(geometry);
+    if (state == NULL) {
+        test_fail("create_state(geometry) failed, errno = %d.", errno);
+    }
+
+    add_step_change(state, -1, 0);
+    for (int i=0; i<TEST_QSTEPS; ++i) {
+        struct step_change * restrict const change = state->step_changes;
+        change->what = -(i % CHANGE_BALL) - 1;
+        change->data = (unsigned int)i;
+        history_push(me, state);
+    }
+
+    if (me->qstep_changes > me->capacity) {
+        test_fail("history struct corrupted, me->qstep_changes (%u) more than me->capacity (%u).", me->qstep_changes, me->capacity);
+    }
+
+    if (me->qstep_changes != TEST_QSTEPS) {
+        test_fail("history qstep_changes mismatch: actual %u, expected %u.", me->qstep_changes, TEST_QSTEPS);
+    }
+
+    for (int i=0; i<TEST_QSTEPS; ++i) {
+        const int what = -(i % CHANGE_BALL) - 1;
+        const uint32_t data = (unsigned int)i;
+        if (me->step_changes[i].what != what) {
+            test_fail("history struct corrupted, steps[%d].what = %d, but %d was written.", i, me->step_changes[i].what, what);
+        }
+        if (me->step_changes[i].data != data) {
+            test_fail("history struct corrupted, steps[%d].data = %u, but %u was written.", i, me->step_changes[i].data, data);
+        }
+    }
+
+    destroy_state(state);
+    destroy_geometry(geometry);
+    free_history(me);
     return 0;
 }
 
