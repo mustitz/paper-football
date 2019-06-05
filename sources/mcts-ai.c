@@ -646,17 +646,12 @@ static uint32_t simulate(
 {
     struct state * restrict const state = me->backup;
     state_copy(state, me->state);
-    const int32_t * const connections = state->geometry->connections;
 
-    int active = state->active;
-    int ball = state->ball;
-    uint8_t * restrict const lines = state->lines;
-
-    if (ball == GOAL_1) {
+    if (state->ball == GOAL_1) {
         return 1;
     }
 
-    if (ball == GOAL_2) {
+    if (state->ball == GOAL_2) {
         return 1;
     }
 
@@ -664,13 +659,15 @@ static uint32_t simulate(
     me->hist_ptr = me->hist;
 
     for (;;) {
-        const steps_t answers = lines[ball] ^ 0xFF;
+
+        steps_t answers = state_get_steps(state);
         if (answers == 0) {
-            update_history(me, active != 1 ? +1 : -1);
+            update_history(me, state->active != 1 ? +1 : -1);
             return qthink;
         }
 
         const enum step step = select_step(me, node, answers);
+        state_step(state, step);
         ++qthink;
 
         uint32_t ichild = node->children[step];
@@ -685,35 +682,25 @@ static uint32_t simulate(
             node = me->nodes + ichild;
         }
 
-        add_history(me, node, active);
+        add_history(me, node, state->active);
 
-        const int next = connections[ball*QSTEPS + step];
+        const int status = state_status(state);
 
-        if (next == GOAL_1) {
+        if (status == WIN_1) {
             update_history(me, +1);
             return qthink;
         }
 
-        if (next == GOAL_2) {
+        if (status == WIN_2) {
             update_history(me, -1);
             return qthink;
         }
-
-        if (lines[next] == 0) {
-            active ^= 3;
-        }
-
-        lines[ball] |= (1 << step);
-        lines[next] |= (1 << BACK(step));
-        ball = next;
 
         if (ichild == 0) {
             break;
         }
     }
 
-    state->ball = ball;
-    state->active = active;
     const int32_t score = rollout(state, me->max_depth, &qthink);
     update_history(me, score);
     return qthink;
