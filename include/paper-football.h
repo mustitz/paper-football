@@ -89,7 +89,6 @@ struct state
     uint8_t * lines;
     int active;
     int ball;
-    int ball_before_goal;
     enum step step1;
     enum step step2;
     uint64_t step12;

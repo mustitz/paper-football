@@ -499,58 +499,50 @@ static struct node * alloc_node(struct mcts_ai * restrict const me)
     return result;
 }
 
+static inline enum step random_step(steps_t steps)
+{
+    enum step alternatives[QSTEPS];
+    int qalternatives = 0;
+    for (enum step step=0; step<QSTEPS; ++step) {
+        const steps_t mask = 1 << step;
+        if (mask & steps) {
+            alternatives[qalternatives++] = step;
+        }
+    }
+    const int choice = rand() % qalternatives;
+    return alternatives[choice];
+}
+
 static int rollout(
     struct state * restrict const state,
     uint32_t max_steps,
     uint32_t * qthink)
 {
-    const int32_t * const connections = state->geometry->connections;
-
-    int active = state->active;
-    int ball = state->ball;
-    uint8_t * restrict const lines = state->lines;
-
-    if (ball == GOAL_1) {
-        return +1;
-    }
-
-    if (ball == GOAL_2) {
-        return -1;
-    }
-
     for (;;) {
+        const int status = state_status(state);
+
+        if (status == WIN_1) {
+            return +1;
+        }
+
+        if (status == WIN_2) {
+            return -1;
+        }
+
         if (max_steps-- == 0) {
             return 0;
         }
 
-        const steps_t ball_lines = lines[ball];
-        const steps_t answers = ball_lines ^ 0xFF;
+        steps_t answers = state_get_steps(state);
         if (answers == 0) {
-            return active != 1 ? +1 : -1;
+            return state->active != 1 ? +1 : -1;
         }
 
-        const int qanswers = step_count(answers);
-        const int index = qanswers == 1 ? 0 : rand() % qanswers;
-        enum step step = magic_steps[answers][index];
+        const int multiple_ways = answers & (answers - 1);
+        const enum step step = multiple_ways ? random_step(answers) : first_step(answers);
 
-        const int next = connections[ball*QSTEPS + step];
-
-        if (next == GOAL_1) {
-            return +1;
-        }
-
-        if (next == GOAL_2) {
-            return -1;
-        }
-
-        lines[ball] |= (1 << step);
-        lines[next] |= (1 << BACK(step));
-        ball = next;
+        state_step(state, step);
         ++*qthink;
-
-        if (ball_lines == 0) {
-            active ^= 3;
-        }
     }
 }
 

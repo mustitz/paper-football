@@ -404,7 +404,6 @@ void init_state(
     me->geometry = geometry;
     me->active = 1;
     me->ball = ball;
-    me->ball_before_goal = NO_WAY;
     me->lines = lines;
 
     init_lines(geometry, lines);
@@ -466,7 +465,6 @@ int state_copy(
     memcpy(dest->lines, src->lines, src->geometry->qpoints);
     dest->active = src->active;
     dest->ball = src->ball;
-    dest->ball_before_goal = src->ball_before_goal;
     dest->step1 = src->step1;
     dest->step2 = src->step2;
     dest->step12 = src->step12;
@@ -510,12 +508,14 @@ static inline int last_step(
     const int next)
 {
     me->ball = next;
-    add_step_change(me, CHANGE_STEP_12_LO, me->step12 & 0xFFFFFFFFull);
-    add_step_change(me, CHANGE_STEP_12_HI, me->step12 >> 32);
-    me->step12 = state_gen_step12(me);
-    if (me->step12 != 0) {
-        add_step_change(me, CHANGE_ACTIVE, me->active);
-        me->active ^= 3;
+    if (next >= 0) {
+        add_step_change(me, CHANGE_STEP_12_LO, me->step12 & 0xFFFFFFFFull);
+        add_step_change(me, CHANGE_STEP_12_HI, me->step12 >> 32);
+        me->step12 = state_gen_step12(me);
+        if (me->step12 != 0) {
+            add_step_change(me, CHANGE_ACTIVE, me->active);
+            me->active ^= 3;
+        }
     }
     add_step_change(me, what, step);
     return next;
@@ -536,7 +536,7 @@ static inline int free_kick_step(struct state * restrict const me, const enum st
     for (int i=0; i<free_kick_len; ++i) {
         next = connections[QSTEPS * next + step];
         if (next < 0) {
-            me->ball_before_goal = me->ball;
+            add_step_change(me, CHANGE_BALL, me->ball);
             break;
         }
         mark_occuped(me, next);
@@ -560,7 +560,6 @@ int state_step(struct state * restrict const me, const enum step step)
     if (next < 0) {
         if (next != NO_WAY) {
             add_step_change(me, CHANGE_BALL, me->ball);
-            me->ball_before_goal = me->ball;
             me->ball = next;
             add_step_change(me, CHANGE_PASS, step);
         }
