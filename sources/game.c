@@ -299,19 +299,52 @@ static inline void mark_diag(
         return;
     }
 
-    const int32_t * const connections = me->geometry->connections + QSTEPS * point;
+    const int32_t * const connections = me->geometry->connections;
+    const int32_t * const point_connections = connections + QSTEPS * point;
 
-    enum step prev_step = (step - 1) & 0x07;
-    enum step next_step = (step + 1) & 0x07;
+    const int32_t next = point_connections[step];
+    if (next < 0) {
+        return;
+    }
 
-    const int prev_point = connections[prev_step];
-    const int next_point = connections[next_step];
+    /*
+     *   A ----- P
+     *   |     / |
+     *   |   /   |
+     *   | /     |
+     *   N ----- B
+     *
+     *   Point are single capital letters: P = point, N = next;
+     *   Steps are two letters: point from and point to: step = PN = 'SW'
+     *
+     */
 
-    enum step prev_ortogonal = (step + 2) & 0x07;
-    enum step next_ortogonal = (step - 2) & 0x07;
+    enum step PA = (step + 1) & 0x07;
+    enum step PB = (step - 1) & 0x07;
 
-    add_step_change(me, prev_point, prev_ortogonal);
-    add_step_change(me, next_point, next_ortogonal);
+    int32_t A = point_connections[PA];
+    int32_t B = point_connections[PB];
+
+    if (A == NO_WAY) {
+        const int index = next * QSTEPS + BACK(PB);
+        A = connections[index];
+    }
+
+    if (B == NO_WAY) {
+        const int index = next * QSTEPS + BACK(PA);
+        B = connections[index];
+    }
+
+    enum step BA = (step + 2) & 0x07;
+    enum step AB = (step - 2) & 0x07;
+
+    if (A >= 0) {
+        add_step_change(me, A, AB);
+    }
+
+    if (B >= 0) {
+        add_step_change(me, B, BA);
+    }
 }
 
 static uint64_t state_gen_step12(const struct state * const me)

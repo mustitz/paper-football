@@ -1092,7 +1092,7 @@ int test_mcts_ai_unstep(void)
 
     init_mcts_ai(ai, geometry);
 
-    const uint32_t qthink = 16 * 1024;
+    const uint32_t qthink = 8 * 1024;
     status = ai->set_param(ai, "qthink", &qthink);
     if (status != 0) {
         test_fail("ai->set_param fails with code %d, %s.", status, ai->error);
