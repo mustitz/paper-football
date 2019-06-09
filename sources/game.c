@@ -1024,6 +1024,94 @@ int test_step(void)
     return 0;
 }
 
+#define NW NORTH_WEST
+#define  N NORTH
+#define NE NORTH_EAST
+#define  E EAST
+#define SE SOUTH_EAST
+#define  S SOUTH
+#define SW SOUTH_WEST
+#define  W WEST
+#define ZZ QSTEPS
+
+int test_step2(void)
+{
+    struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d) failed, errno = %d.", BW, BH, GW, errno);
+    }
+
+    struct state * restrict const state = create_state(geometry);
+    if (state == NULL) {
+        test_fail("create_state(geometry) failed, errno = %d.", errno);
+    }
+
+    struct test_step {
+        enum step steps[3];
+    };
+
+    static const struct test_step terminator = {{ ZZ, ZZ, ZZ }};
+    static const struct test_step test_steps[] = {
+        {{ SW,  W, SW }}, {{  N, NW,  N }},
+        {{ SW, SE, SW }}, {{ SE,  S,  W }},
+        {{ NW,  S,  S }}, {{  W, SE, SW }},
+        {{ SE,  N, NE }}, {{  N,  E,  S }},
+        {{ SE,  W,  W }}, {{  S,  E, SW }},
+        {{  W, SE, NE }}, {{ SE, SE, ZZ }},
+        {{ ZZ, ZZ, ZZ }}
+    };
+
+    const struct test_step * test_step = test_steps;
+    const size_t sz = sizeof(struct test_step);
+    for (; memcmp(test_step, &terminator, sz) != 0; ++test_step)
+    {
+        for (int i=0; i<3; ++i) {
+            const enum step step = test_step->steps[i];
+            if (step == ZZ) {
+                break;
+            }
+
+            const int next = state_step(state, step);
+            if (next < 0) {
+                const int index = test_step - test_steps;
+                test_fail("state_step on move %d/%d: point expected, but next = %d.", index, i, next);
+            }
+        }
+    }
+
+    const int next1 = state_step(state, NE);
+    if (next1 < 0) {
+        test_fail("state_step on special NE move: point expected, but next = %d.", next1);
+    }
+
+    const int next2 = state_step(state, S);
+    if (next2 < 0) {
+        test_fail("state_step on special S move: point expected, but next = %d.", next2);
+    }
+
+    const steps_t steps = state_get_steps(state);
+    const steps_t possible = 0
+        | (1 << NORTH_EAST)
+        | (1 << EAST)
+        | (1 << SOUTH_EAST)
+        | (1 << SOUTH)
+        | (1 << SOUTH_WEST)
+    ;
+
+    if (steps != possible) {
+        test_fail("state_get_steps failed: returned 0x%02X, expected 0x%02X.", steps, possible);
+    }
+
+    const int next3 = state_step(state, S);
+    if (next3 != GOAL_2) {
+        test_fail("state_step on goal S move: GOAL_1 expected, but next = %d.", next3);
+    }
+
+    destroy_state(state);
+    destroy_geometry(geometry);
+    return 0;
+}
+
 #define TEST_QSTEPS   4096
 
 int test_history(void)
