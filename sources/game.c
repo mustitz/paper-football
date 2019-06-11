@@ -121,6 +121,249 @@ struct geometry * create_std_geometry(const int width, const int height, const i
     return me;
 }
 
+static inline int check_hockey_arg(
+    const int width,
+    const int height,
+    const int goal_width,
+    const int depth)
+{
+    int status;
+
+    status = check_dim(width);
+    if (status) {
+        return status;
+    }
+
+    status = check_dim(height);
+    if (status) {
+        return status;
+    }
+
+    if (goal_width < 2) {
+        return errno = EINVAL;
+    }
+
+    if (goal_width % 2 != 0) {
+        return errno = EINVAL;
+    }
+
+    if (goal_width + 3 > width) {
+        return errno = EINVAL;
+    }
+
+    if (depth < 2) {
+        return errno = EINVAL;
+    }
+
+    if (depth >= width/2) {
+        return errno = EINVAL;
+    }
+
+    return 0;
+}
+
+static inline void set(
+    const uint32_t W,
+    int32_t * const connections,
+    const int32_t value,
+    const uint32_t x,
+    const uint32_t y,
+    const enum step step)
+{
+    uint32_t offset = y * W + x;
+    int32_t * restrict const ptr = connections + QSTEPS * offset;
+    ptr[step] = value;
+}
+
+struct geometry * create_hockey_geometry(
+    const int width,
+    const int height,
+    const int goal_width,
+    const int depth)
+{
+    const int status = check_hockey_arg(width, height, goal_width, depth);
+    if (status) {
+        return NULL;
+    }
+
+    const uint32_t H = (uint32_t)height + 2 * (uint32_t)depth;
+    const uint32_t W = (uint32_t)width;
+    const uint32_t qpoints = H * W;
+    const size_t board_map_sz = qpoints * QSTEPS * sizeof(uint32_t);
+    const size_t sizes[2] = { sizeof(struct geometry), board_map_sz };
+    void * ptrs[2];
+    void * data = multialloc(2, sizes, ptrs, 256);
+
+    if (data == NULL) {
+        return NULL;
+    }
+
+    struct geometry * restrict const me = data;
+    int32_t * const connections = ptrs[1];
+
+    { /* Everything is possible */
+
+        static const int delta_x[QSTEPS] = { -1,  0, +1, +1, +1,  0, -1, -1 };
+        static const int delta_y[QSTEPS] = { +1, +1, +1,  0, -1, -1, -1,  0 };
+        int steps[QSTEPS] = { W-1, W, W+1, 1, -W+1, -W, -W-1, -1 };
+
+        int32_t * restrict ptr = connections;
+        for (int32_t offset = 0; offset < W*H; ++offset) {
+            for (enum step step=0; step<QSTEPS; ++step)
+            {
+                const int x = offset % W;
+                const int y = offset / W;
+                const int next_x = x + delta_x[step];
+                const int next_y = y + delta_y[step];
+
+                const int possible = 1
+                    && next_x >= 0 && next_x < W
+                    && next_y >= 0 && next_y < H
+                ;
+
+                *ptr++ = possible ? offset + steps[step] : NO_WAY;
+            }
+        }
+    }
+
+    { /* Disable vertial moves on left/right edge */
+
+        for (uint32_t y=0; y<H; ++y) {
+            const uint32_t x1 = 0;
+            const uint32_t x2 = W-1;
+            set(W, connections, NO_WAY, x1, y, NORTH);
+            set(W, connections, NO_WAY, x1, y, SOUTH);
+            set(W, connections, NO_WAY, x2, y, NORTH);
+            set(W, connections, NO_WAY, x2, y, SOUTH);
+        }
+    }
+
+    { /* Disable horizontal moves on top/botton edge */
+
+        for (uint32_t x=0; x<W; ++x) {
+            const uint32_t y1 = 0;
+            const uint32_t y2 = H-1;
+            set(W, connections, NO_WAY, x, y1, EAST);
+            set(W, connections, NO_WAY, x, y1, WEST);
+            set(W, connections, NO_WAY, x, y2, EAST);
+            set(W, connections, NO_WAY, x, y2, WEST);
+        }
+    }
+
+    { /* Mark Goal Line */
+        const uint32_t xl = W/2 - goal_width/2;
+        const uint32_t xr = W/2 + goal_width/2;
+        const uint32_t y1 = H - 1 - depth;
+        const uint32_t y2 = depth;
+
+        set(W, connections, NO_WAY, xl, y1, NORTH);
+        set(W, connections, NO_WAY, xr, y1, NORTH);
+        set(W, connections, NO_WAY, xl, y2, SOUTH);
+        set(W, connections, NO_WAY, xr, y2, SOUTH);
+
+        set(W, connections, GOAL_1, xl, y1, NORTH_EAST);
+        set(W, connections, GOAL_1, xr, y1, NORTH_WEST);
+        set(W, connections, GOAL_2, xl, y2, SOUTH_EAST);
+        set(W, connections, GOAL_2, xr, y2, SOUTH_WEST);
+
+        for (uint32_t x=xl+1; x<xr; ++x) {
+            set(W, connections, GOAL_1, x, y1, NORTH_WEST);
+            set(W, connections, GOAL_1, x, y1,      NORTH);
+            set(W, connections, GOAL_1, x, y1, NORTH_EAST);
+
+            set(W, connections, GOAL_2, x, y2, SOUTH_WEST);
+            set(W, connections, GOAL_2, x, y2, SOUTH);
+            set(W, connections, GOAL_2, x, y2, SOUTH_EAST);
+        }
+    }
+
+    { /* Mark Goal Net */
+        const uint32_t xl = W/2 - goal_width/2;
+        const uint32_t xr = W/2 + goal_width/2;
+        const uint32_t y1 = H - depth;
+        const uint32_t y2 = depth - 1;
+
+        set(W, connections, NO_WAY, xl, y1, EAST);
+        set(W, connections, NO_WAY, xl, y1, SOUTH_EAST);
+        set(W, connections, NO_WAY, xl, y1, SOUTH);
+
+        set(W, connections, NO_WAY, xr, y1, WEST);
+        set(W, connections, NO_WAY, xr, y1, SOUTH_WEST);
+        set(W, connections, NO_WAY, xr, y1, SOUTH);
+
+        set(W, connections, NO_WAY, xl, y2, EAST);
+        set(W, connections, NO_WAY, xl, y2, NORTH_EAST);
+        set(W, connections, NO_WAY, xl, y2, NORTH);
+
+        set(W, connections, NO_WAY, xr, y2, WEST);
+        set(W, connections, NO_WAY, xr, y2, NORTH_WEST);
+        set(W, connections, NO_WAY, xr, y2, NORTH);
+
+        for (uint32_t x=xl+1; x<xr; ++x) {
+            set(W, connections, NO_WAY, x, y1, EAST);
+            set(W, connections, NO_WAY, x, y1, SOUTH_EAST);
+            set(W, connections, NO_WAY, x, y1, SOUTH);
+            set(W, connections, NO_WAY, x, y1, SOUTH_WEST);
+            set(W, connections, NO_WAY, x, y1, WEST);
+
+            set(W, connections, NO_WAY, x, y2, EAST);
+            set(W, connections, NO_WAY, x, y2, NORTH_EAST);
+            set(W, connections, NO_WAY, x, y2, NORTH);
+            set(W, connections, NO_WAY, x, y2, NORTH_WEST);
+            set(W, connections, NO_WAY, x, y2, WEST);
+        }
+    }
+
+    { /* Coners */
+        for (uint32_t x1=0; x1<=depth; ++x1)
+        for (uint32_t y1=0; y1<=depth; ++y1)
+        {
+            if (x1 + y1 > depth) continue;
+
+            const uint32_t x2 = W - 1 - x1;
+            const uint32_t y2 = H - 1 - y1;
+
+            if (x1 + y1 < depth) {
+                for (enum step step=0; step<QSTEPS; ++step) {
+                    set(W, connections, NO_WAY, x1, y1, step);
+                    set(W, connections, NO_WAY, x1, y2, step);
+                    set(W, connections, NO_WAY, x2, y1, step);
+                    set(W, connections, NO_WAY, x2, y2, step);
+                }
+                continue;
+            }
+
+            set(W, connections, NO_WAY, x1, y1, NORTH_WEST);
+            set(W, connections, NO_WAY, x1, y1, WEST);
+            set(W, connections, NO_WAY, x1, y1, SOUTH_WEST);
+            set(W, connections, NO_WAY, x1, y1, SOUTH);
+            set(W, connections, NO_WAY, x1, y1, SOUTH_EAST);
+
+            set(W, connections, NO_WAY, x1, y2, NORTH_EAST);
+            set(W, connections, NO_WAY, x1, y2, NORTH);
+            set(W, connections, NO_WAY, x1, y2, NORTH_WEST);
+            set(W, connections, NO_WAY, x1, y2, WEST);
+            set(W, connections, NO_WAY, x1, y2, SOUTH_WEST);
+
+            set(W, connections, NO_WAY, x2, y1, NORTH_EAST);
+            set(W, connections, NO_WAY, x2, y1, EAST);
+            set(W, connections, NO_WAY, x2, y1, SOUTH_EAST);
+            set(W, connections, NO_WAY, x2, y1, SOUTH);
+            set(W, connections, NO_WAY, x2, y1, SOUTH_WEST);
+
+            set(W, connections, NO_WAY, x2, y2, NORTH_WEST);
+            set(W, connections, NO_WAY, x2, y2, NORTH);
+            set(W, connections, NO_WAY, x2, y2, NORTH_EAST);
+            set(W, connections, NO_WAY, x2, y2, EAST);
+            set(W, connections, NO_WAY, x2, y2, SOUTH_EAST);
+        }
+    }
+
+    me->qpoints = qpoints;
+    me->connections = connections;
+    return me;
+}
+
 void destroy_geometry(struct geometry * restrict const me)
 {
     free(me);

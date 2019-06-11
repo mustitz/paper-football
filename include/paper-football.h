@@ -68,6 +68,12 @@ struct geometry * create_std_geometry(
     const int height,
     const int goal_width);
 
+struct geometry * create_hockey_geometry(
+    const int width,
+    const int height,
+    const int goal_width,
+    const int depth);
+
 void destroy_geometry(struct geometry * restrict const me);
 
 struct state
