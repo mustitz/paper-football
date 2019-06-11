@@ -14,6 +14,8 @@
 #define KW_AI               8
 #define KW_GO               9
 #define KW_INFO            10
+#define KW_SOCCER          11
+#define KW_HOCKEY          12
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
@@ -28,8 +30,12 @@ struct keyword_desc keywords[] = {
     ITEM(AI),
     ITEM(GO),
     ITEM(INFO),
+    ITEM(SOCCER),
+    ITEM(HOCKEY),
     { NULL, 0 }
 };
+
+enum board_shape { SOCCER, HOCKEY };
 
 const char * step_names[QSTEPS] = {
     "NW", "N", "NE", "E", "SE", "S", "SW", "W"
@@ -53,9 +59,12 @@ struct cmd_parser
     struct line_parser line_parser;
     const struct keyword_tracker * tracker;
 
+    enum board_shape board_shape;
     int width;
     int height;
     int goal_width;
+    int depth;
+
     struct geometry * geometry;
     struct state * state;
     struct state * backup;
@@ -116,24 +125,15 @@ static void free_ai(struct cmd_parser * restrict const me)
 
 static int new_game(
     struct cmd_parser * restrict const me,
-    const int width,
-    const int height,
-    const int goal_width)
+    struct geometry * restrict const geometry)
 {
-    struct geometry * restrict const geometry = create_std_geometry(width, height, goal_width);
-    if (geometry == NULL) {
-        return errno;
-    }
-
     struct state * restrict const state = create_state(geometry);
     if (state == NULL) {
-        destroy_geometry(geometry);
         return ENOMEM;
     }
 
     struct state * restrict const backup = create_state(geometry);
     if (backup == NULL) {
-        destroy_geometry(geometry);
         destroy_state(state);
         return ENOMEM;
     }
@@ -141,7 +141,6 @@ static int new_game(
     if (me->ai) {
         const int status = me->ai->reset(me->ai, geometry);
         if (status != 0) {
-            destroy_geometry(geometry);
             destroy_state(state);
             destroy_state(backup);
             return status;
@@ -150,9 +149,6 @@ static int new_game(
 
     destroy_game(me);
 
-    me->width = width;
-    me->height = height;
-    me->goal_width = goal_width;
     me->geometry = geometry;
     me->state = state;
     me->backup = backup;
@@ -423,6 +419,39 @@ void free_cmd_parser(struct cmd_parser * restrict const me)
     free_history(&me->history);
 }
 
+static struct geometry * create_geometry(
+    enum board_shape board_shape,
+    const int width,
+    const int height,
+    const int goal_width,
+    const int depth)
+{
+    struct geometry * geometry;
+
+    switch (board_shape) {
+
+        case SOCCER:
+            geometry = create_std_geometry(width, height, goal_width);
+            if (geometry != NULL) {
+                return geometry;
+            }
+            fprintf(stderr, "create_std_geometry(%d, %d, %d) failed with code %d: %s.\n", width, height, goal_width, errno, strerror(errno));
+            return NULL;
+
+        case HOCKEY:
+            geometry = create_hockey_geometry(width, height, goal_width, depth);
+            if (geometry != NULL) {
+                return geometry;
+            }
+            fprintf(stderr, "create_hockey_geometry(%d, %d, %d, %d) failed with code %d: %s.\n", width, height, goal_width, depth, errno, strerror(errno));
+            return NULL;
+
+        default:
+            fprintf(stderr, "Internal error: invalid board shape %d.\n", board_shape);
+            return NULL;
+    }
+}
+
 int init_cmd_parser(struct cmd_parser * restrict const me)
 {
     me->tracker = NULL;
@@ -431,13 +460,26 @@ int init_cmd_parser(struct cmd_parser * restrict const me)
     me->backup = NULL;
     me->ai = NULL;
 
+    me->board_shape = SOCCER;
+    me->width = 9;
+    me->height = 11;
+    me->goal_width = 2;
+    me->depth = 0;
+
     me->tracker = create_keyword_tracker(keywords, KW_TRACKER__IGNORE_CASE);
     if (me->tracker == NULL) {
         free_cmd_parser(me);
         return ENOMEM;
     }
 
-    const int status = new_game(me, 9, 11, 2);
+    struct geometry * restrict geometry = create_geometry(
+        me->board_shape, me->width, me->height, me->goal_width, me->depth);
+    if (geometry == NULL) {
+        free_cmd_parser(me);
+        return errno;
+    }
+
+    const int status = new_game(me, geometry);
     if (status != 0) {
         free_cmd_parser(me);
         return status;
@@ -471,9 +513,25 @@ void process_status(struct cmd_parser * restrict const me)
     const struct state * const state = me->state;
     const int ball = state->ball;
     const int active = state->active;
+    const enum board_shape board_shape = me->board_shape;
 
+    switch (board_shape) {
+        case SOCCER:
+            printf("Board shape:      soccer\n");
+            break;
+        case HOCKEY:
+            printf("Board shape:      hockey\n");
+            break;
+        default:
+            printf("Board shape:      unknown with code %d\n", board_shape);
+            break;
+    }
     printf("Board width:   %4d\n", me->width);
     printf("Board height:  %4d\n", me->height);
+    if (board_shape == HOCKEY) {
+        printf("Board depth:   %4d\n", me->depth);
+    }
+
     printf("Goal width:    %4d\n", me->goal_width);
     printf("Active player: %4d\n", active);
     if (ball >= 0) {
@@ -493,9 +551,25 @@ void process_new(struct cmd_parser * restrict const me)
     struct line_parser * restrict const lp = &me->line_parser;
 
     int status;
-    int width, height, goal_width;
+    int width, height, goal_width, depth;
 
-    parser_skip_spaces(lp);
+    const int keyword = read_keyword(me);
+    enum board_shape board_shape = SOCCER;
+    if (keyword >= 0) {
+        switch (keyword) {
+            case KW_SOCCER:
+                board_shape = SOCCER;
+                break;
+            case KW_HOCKEY:
+                board_shape = HOCKEY;
+                break;
+            default:
+                error(lp, "Invalid game type.");
+                return;
+        }
+        parser_skip_spaces(lp);
+    }
+
     status = parser_try_int(lp, &width);
     if (status != 0) {
         error(lp, "Board width integer constant expected in NEW command.");
@@ -551,12 +625,48 @@ void process_new(struct cmd_parser * restrict const me)
         return;
     }
 
+    if (board_shape == HOCKEY) {
+        parser_skip_spaces(lp);
+        status = parser_try_int(lp, &depth);
+        if (status != 0) {
+            error(lp, "Board depth integer constant expected in NEW command.");
+            return;
+        }
+
+        if (depth < 2) {
+            error(lp, "Board depth integer constant should be at least 2 or more.");
+            return;
+        }
+
+        if (depth >= width/2) {
+            error(lp, "Board depth integer constant should be less than width/2 = %d.", width/2);
+            return;
+        }
+    } else {
+        depth = 0;
+    }
+
     if (!parser_check_eol(lp)) {
         error(lp, "End of line expected (NEW command is completed), but someting was found.");
         return;
     }
 
-    new_game(me, width, height, goal_width);
+    struct geometry * restrict geometry = create_geometry(board_shape, width, height, goal_width, depth);
+    if (geometry == NULL) {
+        return;
+    }
+
+    status = new_game(me, geometry);
+    if (status == 0) {
+        me->board_shape = board_shape;
+        me->width = width;
+        me->height = height;
+        me->goal_width = goal_width;
+        me->depth = depth;
+    } else {
+        destroy_geometry(geometry);
+        fprintf(stderr, "New game failed with code %d, %s.\n", status, strerror(status));
+    }
 }
 
 void process_step(struct cmd_parser * restrict const me)
@@ -846,7 +956,10 @@ int process_cmd(struct cmd_parser * restrict const me, const char * const line)
 int main()
 {
     struct cmd_parser cmd_parser;
-    init_cmd_parser(&cmd_parser);
+    const int status = init_cmd_parser(&cmd_parser);
+    if (status != 0) {
+        return status;
+    }
 
     char * line = 0;
     size_t len = 0;
