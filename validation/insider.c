@@ -51,6 +51,7 @@ const struct test_item tests[] = {
     { "multialloc", &test_multialloc },
     { "parser", &test_parser },
     { "std-geometry", &test_std_geometry },
+    { "hockey-geometry", &test_hockey_geometry },
     { "step", &test_step },
     { "history", &test_history },
     { "random-ai", &test_random_ai },

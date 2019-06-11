@@ -597,6 +597,7 @@ int history_push(struct history * restrict const me, const enum step step)
 #define BW    9
 #define BH   11
 #define GW    2
+#define DEPTH 2
 
 #define STOP  QSTEPS
 
@@ -696,6 +697,98 @@ int test_std_geometry(void)
     check_map(me, center, NO_WAY, out);
 
     static enum step goal1[]= { NORTH, NORTH, NORTH, NORTH, NORTH, NORTH_EAST };
+    check_map(me, center,  GOAL_1, goal1);
+
+    static enum step goal2[]= { SOUTH, SOUTH, SOUTH, SOUTH, SOUTH_WEST, SOUTH_EAST };
+    check_map(me, center,  GOAL_2, goal2);
+
+    destroy_geometry(me);
+    return 0;
+}
+
+int test_hockey_geometry(void)
+{
+    struct geometry * restrict const me = create_hockey_geometry(BW, BH, GW, DEPTH);
+    if (me == NULL) {
+        test_fail("create_hockey_geometry(%d, %d, %d, %d) fails, return value is NULL, errno is %d.",
+            BW, BH, GW, DEPTH, errno);
+    }
+
+    const int expected_from_center[QSTEPS] = {
+        make_point(3, 8), make_point(4, 8), make_point(5, 8), make_point(5, 7),
+        make_point(5, 6), make_point(4, 6), make_point(3, 6), make_point(3, 7)
+    };
+    check_steps(me, 4, 7, expected_from_center);
+
+    const int nw_corner1[QSTEPS] = {
+        NO_WAY, NO_WAY, NO_WAY, make_point(1, 12), make_point(1, 11), NO_WAY, NO_WAY, NO_WAY
+    };
+    check_steps(me, 0, 12, nw_corner1);
+
+    const int ne_corner2[QSTEPS] = {
+        make_point(5, 14), make_point(6, 14), make_point(7, 14), make_point(7, 13),
+        make_point(7, 12), make_point(6, 12), make_point(5, 12), make_point(5, 13)
+    };
+    check_steps(me, 6, 13, ne_corner2);
+
+    const int se_corner3[QSTEPS] = {
+        make_point(6, 2), make_point(7, 2), NO_WAY, NO_WAY,
+        NO_WAY, NO_WAY, NO_WAY, make_point(6, 1)
+    };
+    check_steps(me, 7, 1, se_corner3);
+
+    const int sw_corner4[QSTEPS] = {
+        NO_WAY, NO_WAY, NO_WAY, NO_WAY, NO_WAY, NO_WAY, NO_WAY, NO_WAY
+    };
+    check_steps(me, 1, 0, sw_corner4);
+
+    const int right_side[QSTEPS] = {
+        make_point(7, 7), NO_WAY, NO_WAY, NO_WAY, NO_WAY, NO_WAY,
+        make_point(7, 5), make_point(7, 6)
+    };
+    check_steps(me, 8, 6, right_side);
+
+    const int bottom_side[QSTEPS] = {
+        make_point(2, 1), make_point(3, 1), make_point(4, 1),
+        NO_WAY, NO_WAY, NO_WAY, NO_WAY, NO_WAY
+    };
+    check_steps(me, 3, 0, bottom_side);
+
+    const int goal_post[QSTEPS] = {
+        GOAL_1, NO_WAY, make_point(6, 13), make_point(6, 12),
+        make_point(6, 11), make_point(5, 11), make_point(4, 11), make_point(4, 12)
+    };
+    check_steps(me, 5, 12, goal_post);
+
+    const int goal_line[QSTEPS] = {
+        make_point(3, 3), make_point(4, 3), make_point(5, 3),
+        make_point(5, 2), GOAL_2, GOAL_2, GOAL_2, make_point(3, 2)
+    };
+    check_steps(me, 4, 2, goal_line);
+
+    const int behind_post[QSTEPS] = {
+        make_point(2, 14), make_point(3, 14), make_point(4, 14), NO_WAY,
+        NO_WAY, NO_WAY, make_point(2, 12), make_point(2, 13)
+    };
+    check_steps(me, 3, 13, behind_post);
+
+    const int behind_goal_lines[QSTEPS] = {
+        NO_WAY, NO_WAY, NO_WAY, NO_WAY, make_point(5, 0),
+        make_point(4, 0), make_point(3, 0), NO_WAY
+    };
+    check_steps(me, 4, 1, behind_goal_lines);
+
+    const int center = make_point(BW/2, BH/2 + DEPTH);
+
+    static enum step cycle[] = {
+        SOUTH_WEST, WEST, NORTH_WEST, SOUTH, EAST, NORTH, NORTH_EAST, SOUTH_EAST, STOP
+    };
+    check_map(me, center, center, cycle);
+
+    static enum step out[] = { SOUTH_WEST, SOUTH_WEST, SOUTH_WEST, SOUTH_WEST, SOUTH_WEST };
+    check_map(me, center, NO_WAY, out);
+
+    static enum step goal1[]= { NORTH, NORTH, NORTH, NORTH, NORTH, NORTH_WEST };
     check_map(me, center,  GOAL_1, goal1);
 
     static enum step goal2[]= { SOUTH, SOUTH, SOUTH, SOUTH, SOUTH_WEST, SOUTH_EAST };
