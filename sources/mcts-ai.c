@@ -726,6 +726,11 @@ static enum step ai_go(
     struct mcts_ai * restrict const me,
     struct ai_explanation * restrict const explanation)
 {
+    explanation->qstats = 0;
+    explanation->stats = NULL;
+    explanation->time = 0.0;
+    explanation->score = 0.5;
+
     const steps_t steps = state_get_steps(me->state);
     if (steps == 0) {
         snprintf(me->error_buf, ERROR_BUF_SZ, "no possible steps.");

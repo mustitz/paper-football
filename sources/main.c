@@ -16,6 +16,9 @@
 #define KW_INFO            10
 #define KW_SOCCER          11
 #define KW_HOCKEY          12
+#define KW_TIME            13
+#define KW_SCORE           14
+#define KW_STEPS           15
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
@@ -32,6 +35,9 @@ struct keyword_desc keywords[] = {
     ITEM(INFO),
     ITEM(SOCCER),
     ITEM(HOCKEY),
+    ITEM(TIME),
+    ITEM(SCORE),
+    ITEM(STEPS),
     { NULL, 0 }
 };
 
@@ -40,6 +46,8 @@ enum board_shape { SOCCER, HOCKEY };
 const char * step_names[QSTEPS] = {
     "NW", "N", "NE", "E", "SE", "S", "SW", "W"
 };
+
+enum ai_go_flags { EXPLAIN_TIME, EXPLAIN_SCORE, EXPLAIN_STEPS };
 
 struct ai_desc
 {
@@ -316,8 +324,56 @@ static void restore_ai(
     }
 }
 
-static void ai_go(struct cmd_parser * restrict const me)
+static void explain_step(
+    const enum step step,
+    const unsigned int flags,
+    const struct ai_explanation * const explanation)
 {
+    if (flags == 0) {
+        return;
+    }
+
+    const unsigned int time_mask = 1 << EXPLAIN_TIME;
+    const unsigned int score_mask = 1 << EXPLAIN_SCORE;
+    const unsigned int step_mask = 1 << EXPLAIN_STEPS;
+
+    const unsigned int line_mask = time_mask | score_mask;
+    if (flags & line_mask) {
+        printf("  %2s", step_names[step]);
+        if (flags & time_mask) {
+            printf(" in %.3fs", explanation->time);
+        }
+        if (flags & score_mask) {
+            const double score = explanation->score;
+            if (score >= 0.0 && score <= 1.0) {
+                printf(" score %5.1f%%", 100.0 * score);
+            } else {
+                printf(" score N/A");
+            }
+        }
+        printf("\n");
+    }
+
+    if (flags & step_mask) {
+        const struct step_stat * ptr = explanation->stats;
+        const struct step_stat * const end = ptr + explanation->qstats;
+        for (; ptr != end; ++ptr) {
+            printf("        %2s %5.1f%%", step_names[ptr->step], 100 * ptr->score);
+            if (ptr->qgames > 0) {
+                printf(" %6d\n", ptr->qgames);
+            } else {
+                printf("    N/A\n");
+            }
+        }
+    }
+}
+
+static void ai_go(
+    struct cmd_parser * restrict const me,
+    const unsigned int flags)
+{
+    struct ai_explanation explanation;
+
     if (state_status(me->state) != IN_PROGRESS) {
         fprintf(stderr, "Game over, no moves possible.\n");
         return;
@@ -327,7 +383,7 @@ static void ai_go(struct cmd_parser * restrict const me)
     struct state * restrict const state = me->state;
     const int active = state->active;
 
-    enum step step = ai->go(ai, NULL);
+    enum step step = ai->go(ai, flags ? &explanation : NULL);
     if (step == INVALID_STEP) {
         fprintf(stderr, "AI move: invalid step.\n");
         return;
@@ -336,7 +392,6 @@ static void ai_go(struct cmd_parser * restrict const me)
     state_copy(me->backup, state);
     const unsigned int history_qsteps = me->history.qsteps;
 
-    const char * separator = "";
     for (;;) {
         const int ball = state_step(state, step);
         if (ball == NO_WAY) {
@@ -354,8 +409,8 @@ static void ai_go(struct cmd_parser * restrict const me)
             return;
         }
 
-        printf("%s%s", separator, step_names[step]);
-        separator = " ";
+        history_push(&me->history, step);
+        explain_step(step, flags, &explanation);
 
         const int is_done = 0
             || state_status(state) != IN_PROGRESS
@@ -363,11 +418,10 @@ static void ai_go(struct cmd_parser * restrict const me)
         ;
 
         if (is_done) {
-            printf("\n");
-            return;
+            break;
         }
 
-        step = ai->go(ai, NULL);
+        step = ai->go(ai, flags ? &explanation : NULL);
         if (step == INVALID_STEP) {
             printf("\n");
             fprintf(stderr, "AI move: invalid step.\n");
@@ -375,6 +429,15 @@ static void ai_go(struct cmd_parser * restrict const me)
             return;
         }
     }
+
+    const enum step * step_ptr = me->history.steps + history_qsteps;
+    const enum step * const end = me->history.steps + me->history.qsteps;
+    const char * separator = "";
+    for (; step_ptr != end; step_ptr++) {
+        printf("%s%s", separator, step_names[*step_ptr]);
+        separator = " ";
+    }
+    printf("\n");
 }
 
 static void ai_info(struct cmd_parser * restrict const me)
@@ -858,12 +921,38 @@ void process_set(struct cmd_parser * restrict const me)
 void process_ai_go(struct cmd_parser * restrict const me)
 {
     struct line_parser * restrict const lp = &me->line_parser;
-    if (!parser_check_eol(lp)) {
-        error(lp, "End of line expected (AI GO command is parsed), but someting was found.");
-        return;
+
+    unsigned int flags = 0;
+    while (!parser_check_eol(lp)) {
+        const int keyword = read_keyword(me);
+        if (keyword == -1) {
+            error(lp, "Invalid lexem in AI GO command.");
+            return;
+        }
+
+        switch (keyword) {
+            case KW_TIME:
+                flags |= 1 << EXPLAIN_TIME;
+                break;
+            case KW_SCORE:
+                flags |= 1 << EXPLAIN_SCORE;
+                break;
+            case KW_STEPS:
+                flags |= 1 << EXPLAIN_STEPS;
+                break;
+            default:
+                error(lp, "Invalid explain flag in AI GO command.");
+                return;
+        }
+
+        parser_skip_spaces(lp);
+        if (lp->current[0] == '|' || lp->current[0] == ',') {
+            ++lp->current;
+            parser_skip_spaces(lp);
+        }
     }
 
-    ai_go(me);
+    ai_go(me, flags);
 }
 
 void process_ai_info(struct cmd_parser * restrict const me)
