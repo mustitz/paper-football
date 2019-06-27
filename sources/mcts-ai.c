@@ -52,7 +52,7 @@ struct node
 static void init_magic_steps(void);
 static enum step ai_go(
     struct mcts_ai * restrict const me,
-    struct step_stat * restrict const stats);
+    struct ai_explanation * restrict const explanation);
 
 #define OFFSET(name) offsetof(struct mcts_ai, name)
 static struct ai_param def_params[QPARAMS+1] = {
@@ -370,11 +370,11 @@ int mcts_ai_undo_step(struct ai * restrict const ai)
 
 enum step mcts_ai_go(
     struct ai * restrict const ai,
-    struct step_stat * restrict const stats)
+    struct ai_explanation * restrict const explanation)
 {
     ai->error = NULL;
     struct mcts_ai * restrict const me = ai->data;
-    const enum step step = ai_go(me, stats);
+    const enum step step = ai_go(me, explanation);
     if (step == INVALID_STEP) {
         ai->error = me->error_buf;
     }
@@ -700,8 +700,15 @@ static uint32_t simulate(
 
 static enum step ai_go(
     struct mcts_ai * restrict const me,
-    struct step_stat * restrict const stats)
+    struct ai_explanation * restrict const explanation)
 {
+    if (explanation) {
+        explanation->qstats = 0;
+        explanation->stats = NULL;
+        explanation->time = 0.0;
+        explanation->score = -1.0;
+    }
+
     const steps_t steps = state_get_steps(me->state);
     if (steps == 0) {
         snprintf(me->error_buf, ERROR_BUF_SZ, "no possible steps.");

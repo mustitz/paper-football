@@ -148,9 +148,17 @@ int history_push(struct history * restrict const me, const struct state * const 
 
 struct step_stat
 {
-    int possible;
+    enum step step;
     int32_t qgames;
-    int32_t score;
+    double score;
+};
+
+struct ai_explanation
+{
+    size_t qstats;
+    const struct step_stat * stats;
+    double time;
+    double score;
 };
 
 enum param_type
@@ -196,7 +204,7 @@ struct ai
 
     enum step (*go)(
         struct ai * restrict const ai,
-        struct step_stat * restrict const stats);
+        struct ai_explanation * restrict const explanation);
 
     const struct ai_param * (*get_params)(const struct ai * const ai);
 

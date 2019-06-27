@@ -1,6 +1,7 @@
 #include "paper-football.h"
 
 #include <stdio.h>
+#include <time.h>
 
 #define ERROR_BUF_SZ   256
 
@@ -9,6 +10,7 @@ struct random_ai
     struct state * state;
     struct state * backup;
     char * error_buf;
+    struct step_stat stats[QSTEPS];
 };
 
 static const struct ai_param terminator = { NULL, NULL, NO_TYPE, 0 };
@@ -205,8 +207,9 @@ int random_ai_undo_step(
 
 enum step random_ai_go(
     struct ai * restrict const ai,
-    struct step_stat * restrict const stats)
+    struct ai_explanation * restrict const explanation)
 {
+    double start = clock();
     ai->error = NULL;
     struct random_ai * restrict const me = ai->data;
 
@@ -216,25 +219,40 @@ enum step random_ai_go(
         return INVALID_STEP;
     }
 
+    struct step_stat * restrict stats = me->stats;
     enum step alternatives[QSTEPS];
     int qalternatives = 0;
     for (enum step step=0; step<QSTEPS; ++step) {
         const steps_t mask = 1 << step;
         const int possible = (mask & steps) != 0;
 
-        if (stats) {
-            stats[step].possible = possible;
-            stats[step].qgames = -1;
-            stats[step].score = 0;
+        if (!possible) {
+            continue;
         }
 
-        if (possible) {
-            alternatives[qalternatives++] = step;
+        alternatives[qalternatives++] = step;
+
+        if (explanation) {
+            stats->step = step;
+            stats->qgames = -1;
+            stats->score = 0.5;
+            ++stats;
         }
     }
 
     const int choice =  qalternatives > 1 ? rand() % qalternatives : 0;
-    return alternatives[choice];
+    enum step result = alternatives[choice];
+
+    if (explanation) {
+        double finish = clock();
+        explanation->time = (finish - start) / CLOCKS_PER_SEC;
+        explanation->score = 0.5;
+        const size_t qstats = stats - me->stats;
+        explanation->qstats = qstats > 1 ? qstats : 0;
+        explanation->stats = qstats > 1 ? me->stats : NULL;
+    }
+
+    return result;
 }
 
 const struct ai_param * random_ai_get_params(const struct ai * const ai)
