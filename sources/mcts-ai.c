@@ -661,7 +661,6 @@ static uint32_t simulate(
         }
 
         const enum step step = select_step(me, node, answers);
-        state_step(state, step);
         ++qthink;
 
         uint32_t ichild = node->children[step];
@@ -678,6 +677,7 @@ static uint32_t simulate(
 
         add_history(me, node, state->active);
 
+        state_step(state, step);
         const int status = state_status(state);
 
         if (status == WIN_1) {
