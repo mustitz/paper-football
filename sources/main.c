@@ -284,7 +284,8 @@ static void set_ai(
         if (what != CHANGE_PASS && what != CHANGE_FREE_KICK) {
             continue;
         }
-        const int status = storage.do_step(&storage, step_change->what);
+        const enum step step = step_change->data;
+        const int status = storage.do_step(&storage, step);
         if (status != 0) {
             fprintf(stderr, "Cannot set AI: cannot apply history, status = %d.\n", status);
             storage.free(&storage);
