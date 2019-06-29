@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <time.h>
 
 #define ERROR_BUF_SZ   256
 
@@ -18,6 +19,7 @@ struct mcts_ai
     struct state * backup;
     char * error_buf;
     struct ai_param params[QPARAMS+1];
+    struct step_stat stats[QSTEPS];
 
     uint32_t cache;
     uint32_t qthink;
@@ -698,6 +700,17 @@ static uint32_t simulate(
     return qthink;
 }
 
+static int compare_stats(
+    const void * const ptr_a,
+    const void * const ptr_b)
+{
+    const struct step_stat * a = ptr_a;
+    const struct step_stat * b = ptr_b;
+    if (a->qgames > b->qgames) return -1;
+    if (a->qgames < b->qgames) return +1;
+    return 0;
+}
+
 static enum step ai_go(
     struct mcts_ai * restrict const me,
     struct ai_explanation * restrict const explanation)
@@ -720,6 +733,8 @@ static enum step ai_go(
         const enum step choice = first_step(steps);
         return choice;
     }
+
+	double start = clock();
 
     init_cache(me);
 
@@ -774,7 +789,48 @@ static enum step ai_go(
     }
 
     const int index = qbest == 1 ? 0 : rand() % qbest;
-    return best_steps[index];
+	enum step result = best_steps[index];
+
+	if (explanation) {
+        double finish = clock();
+        explanation->time = (finish - start) / CLOCKS_PER_SEC;
+
+        size_t qstats = 1;
+        for (enum step step=0; step<QSTEPS; ++step) {
+            const uint32_t ichild = root->children[step];
+            if (ichild == 0) {
+                continue;
+            }
+
+            const struct node * const child = me->nodes + ichild;
+            const int32_t qgames = child->qgames;
+            const int32_t score = child->score;
+            double norm_score = -1.0;
+            if (qgames > 0) {
+                norm_score = 0.5 * (score + qgames) / (double)qgames;
+            }
+
+            const size_t i = step == result ? 0 : qstats;
+            me->stats[i].step = step;
+            me->stats[i].qgames = child->qgames;
+            me->stats[i].score = norm_score;
+            qstats += !!i;
+        }
+
+        explanation->qstats = qstats;
+        explanation->stats = me->stats;
+
+        explanation->score = me->stats[0].score;
+        if (me->state->active == 2) {
+            explanation->score = 1.0 - explanation->score;
+        }
+
+        if (qstats > 2) {
+            qsort(me->stats + 1, qstats - 1, sizeof(struct step_stat), compare_stats);
+        }
+    }
+
+    return result;
 }
 
 
