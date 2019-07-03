@@ -567,13 +567,13 @@ static inline int free_kick_step(struct state * restrict const me, const enum st
     const int free_kick_len = me->geometry->free_kick_len;
     int next = ball;
     for (int i=0; i<free_kick_len; ++i) {
+        mark_diag(me, next, step);
         next = connections[QSTEPS * next + step];
         if (next < 0) {
             add_step_change(me, CHANGE_BALL, me->ball);
             break;
         }
         mark_occuped(me, next);
-        mark_diag(me, next, step);
     }
 
     return last_step(me, CHANGE_FREE_KICK, step, next);
