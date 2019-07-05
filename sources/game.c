@@ -370,12 +370,17 @@ static uint64_t state_gen_step12(const struct state * const me)
             enum step step2 = extract_step(&possible1);
             const int ball2 = connections[QSTEPS*ball1 + step2];
             const int index = step1*8 + step2;
-            if (ball2 < 0) {
+
+            if (ball2 == GOAL_1 || ball2 == GOAL_2) {
                 result |= 1ull << index;
                 continue;
             }
-            steps_t ball_lines = ball2 >= 0 ? lines[ball2] : 0;
-            steps_t possible2 = (ball_lines ^ 0xFF) & magic_step3[index];
+
+            if (ball2 < 0) { /* NO_WAY */
+                continue;
+            }
+
+            steps_t possible2 = (lines[ball2] ^ 0xFF) & magic_step3[index];
             if (possible2 != 0) {
                 result |= 1ull << index;
             }
