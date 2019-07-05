@@ -119,7 +119,9 @@ static int init_magic_step3(void)
             for (enum step step3=0; step3<QSTEPS; ++step3) {
                 const int ball3 = ball2 + deltas[step3];
                 if (ball3 != ball0 && ball3 != ball1) {
-                    possible |= mask;
+                    if (ball0 + ball1 != ball2 + ball3) {
+                        possible |= mask;
+                    }
                 }
                 mask <<= 1;
             }
@@ -911,8 +913,8 @@ int test_magic_step3(void)
         qbits += step_count(*ptr);
     }
 
-    if (qbits != 368) {
-        test_fail("Invalid qbist, actual value is %d, expected %d.", qbits, 368);
+    if (qbits != 360) {
+        test_fail("Invalid qbist, actual value is %d, expected %d.", qbits, 360);
     }
 
     return 0;
