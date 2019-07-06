@@ -290,6 +290,33 @@ int mcts_ai_reset(
     return 0;
 }
 
+static void save_state(
+    struct mcts_ai * restrict const me)
+{
+    state_copy(me->backup, me->state);
+
+    const size_t qstats = me->state_serie->qstats;
+    me->backup_serie->qstats = qstats;
+    me->backup_serie->serie_qsteps = me->state_serie->serie_qsteps;
+
+    if (qstats > 0) {
+        const size_t sz = qstats * sizeof(int);
+        memcpy(me->backup_serie->points, me->state_serie->points, sz);
+        memcpy(me->backup_serie->stats, me->state_serie->stats, sz);
+    }
+}
+
+static void restore_backup(struct mcts_ai * restrict const me)
+{
+    struct state * old_state = me->state;
+    me->state = me->backup;
+    me->backup = old_state;
+
+    struct free_kick_serie * old_state_serie = me->state_serie;
+    me->state_serie = me->backup_serie;
+    me->backup_serie = old_state_serie;
+}
+
 int mcts_ai_do_step(
     struct ai * restrict const ai,
     const enum step step)
@@ -315,13 +342,6 @@ int mcts_ai_do_step(
     return 0;
 }
 
-static void restore_backup(struct mcts_ai * restrict const me)
-{
-    struct state * old_state = me->state;
-    me->state = me->backup;
-    me->backup = old_state;
-}
-
 int mcts_ai_do_steps(
     struct ai * restrict const ai,
     const unsigned int qsteps,
@@ -333,7 +353,7 @@ int mcts_ai_do_steps(
     struct history * restrict const history = &ai->history;
     const unsigned int old_qstep_changes = history->qstep_changes;
 
-    state_copy(me->backup, me->state);
+    save_state(me);
 
     const enum step * ptr = steps;
     const enum step * const end = ptr + qsteps;
@@ -680,7 +700,7 @@ static uint32_t simulate(
     struct node * restrict node)
 {
     struct state * restrict const state = me->backup;
-    state_copy(state, me->state);
+    save_state(me);
 
     if (state->ball == GOAL_1) {
         return 1;
