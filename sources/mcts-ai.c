@@ -13,6 +13,14 @@ static const uint32_t    def_qthink =     1024 * 1024;
 static const uint32_t def_max_depth =             128;
 static const  float           def_C =             1.4;
 
+struct free_kick_serie
+{
+    int * points;
+    int * stats;
+    size_t qstats;
+    size_t serie_qsteps;
+};
+
 struct mcts_ai
 {
     struct state * state;
@@ -36,6 +44,10 @@ struct mcts_ai
     struct hist_item * hist_ptr;
     struct hist_item * hist_last;
     uint32_t max_hist_len;
+
+    size_t free_kick_capacity;
+    struct free_kick_serie * state_serie;
+    struct free_kick_serie * backup_serie;
 };
 
 struct hist_item
@@ -169,17 +181,26 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     init_magic_steps();
 
     const uint32_t qpoints = geometry->qpoints;
-    const size_t sizes[6] = {
+    const uint32_t free_kick_len = geometry->free_kick_len;
+    const uint32_t free_kick_reduce = (free_kick_len - 1) * (free_kick_len - 1);
+    const size_t free_kick_capacity = qpoints / free_kick_reduce;
+    const size_t sizes[12] = {
         sizeof(struct mcts_ai),
         sizeof(struct state),
         qpoints,
         sizeof(struct state),
         qpoints,
+        sizeof(struct free_kick_serie),
+        sizeof(int) * free_kick_capacity,
+        sizeof(int) * free_kick_capacity,
+        sizeof(struct free_kick_serie),
+        sizeof(int) * free_kick_capacity,
+        sizeof(int) * free_kick_capacity,
         ERROR_BUF_SZ
     };
 
-    void * ptrs[6];
-    void * data = multialloc(6, sizes, ptrs, 64);
+    void * ptrs[12];
+    void * data = multialloc(12, sizes, ptrs, 64);
 
     if (data == NULL) {
         return NULL;
@@ -190,7 +211,13 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     uint8_t * restrict const lines = ptrs[2];
     struct state * restrict const backup = ptrs[3];
     uint8_t * restrict const backup_lines = ptrs[4];
-    char * const error_buf = ptrs[5];
+    struct free_kick_serie * restrict const state_serie = ptrs[5];
+    int * restrict const state_serie_points = ptrs[6];
+    int * restrict const state_serie_stats = ptrs[7];
+    struct free_kick_serie * restrict const backup_serie = ptrs[8];
+    int * restrict const backup_serie_points = ptrs[9];
+    int * restrict const backup_serie_stats = ptrs[10];
+    char * const error_buf = ptrs[11];
 
     me->state = state;
     me->backup = backup;
@@ -203,6 +230,20 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     me->hist_last = NULL;
     me->hist_ptr = NULL;
     me->max_hist_len = 0;
+
+    me->free_kick_capacity = free_kick_capacity;
+
+    me->state_serie = state_serie;
+    state_serie->points = state_serie_points;
+    state_serie->stats = state_serie_stats;
+    state_serie->qstats = 0;
+    state_serie->serie_qsteps = 0;
+
+    me->backup_serie = backup_serie;
+    backup_serie->points = backup_serie_points;
+    backup_serie->stats = backup_serie_stats;
+    backup_serie->qstats = 0;
+    backup_serie->serie_qsteps = 0;
 
     memcpy(me->params, def_params, sizeof(me->params));
     for (int i=0; i<QPARAMS; ++i) {
