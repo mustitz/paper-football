@@ -317,6 +317,54 @@ static void restore_backup(struct mcts_ai * restrict const me)
     me->backup_serie = old_state_serie;
 }
 
+static void inc_serie(
+    struct free_kick_serie * restrict const serie,
+    const int point)
+{
+    const size_t qstats = serie->qstats;
+    for (size_t i=0; i<qstats; ++i) {
+        if (serie->points[i] == point) {
+            ++serie->stats[i];
+            return;
+        }
+    }
+
+    serie->points[qstats] = point;
+    serie->stats[qstats] = 1;
+    ++serie->qstats;
+}
+
+static int state_step_proxy(
+    struct mcts_ai * restrict const me,
+    const enum step step)
+{
+    struct state * restrict const state = me->state;
+    const int old_active = state->active;
+    const int result = state_step(state, step);
+    const int new_active = state->active;
+    if (result < 0) {
+        return result;
+    }
+
+    struct free_kick_serie * restrict const serie = me->state_serie;
+    const size_t old_qsteps = serie->serie_qsteps;
+    const size_t new_qsteps = new_active == old_active ? old_qsteps+1 : 0;
+    serie->serie_qsteps = new_qsteps;
+
+    switch (new_qsteps){
+        case 0:
+            serie->qstats = 0;
+            return result;
+        case 1:
+        case 2:
+        case 3:
+            return result;
+        default:
+            inc_serie(serie, result);
+            return result;
+    }
+}
+
 int mcts_ai_do_step(
     struct ai * restrict const ai,
     const enum step step)
@@ -324,7 +372,7 @@ int mcts_ai_do_step(
     ai->error = NULL;
     struct mcts_ai * restrict const me = ai->data;
 
-    const int next = state_step(me->state, step);
+    const int next = state_step_proxy(me, step);
 
     if (next == NO_WAY) {
         snprintf(me->error_buf, ERROR_BUF_SZ, "Direction occupied.");
@@ -358,7 +406,7 @@ int mcts_ai_do_steps(
     const enum step * ptr = steps;
     const enum step * const end = ptr + qsteps;
     for (; ptr != end; ++ptr) {
-        const int next = state_step(me->state, *ptr);
+        const int next = state_step_proxy(me, *ptr);
         if (next == NO_WAY) {
             const int index = ptr - steps;
             snprintf(me->error_buf, ERROR_BUF_SZ, "Error on step %d: direction  occupied.", index);
@@ -772,6 +820,29 @@ static int compare_stats(
     return 0;
 }
 
+static double repeat_penalty(
+    const struct mcts_ai * const me,
+    const enum step step)
+{
+    const struct free_kick_serie * const serie = me->state_serie;
+    const size_t qstats = serie->qstats;
+    const int * const points = serie->points;
+    const int * const stats = serie->stats;
+    const struct state * const state = me->state;
+    const int ball = state->ball;
+    const struct geometry * const geometry = state->geometry;
+    const int32_t * const free_kicks = geometry->free_kicks;
+    const int next = free_kicks[8*ball + step];
+    for (size_t i=0; i<qstats; ++i) {
+        if (points[i] == next) {
+            const double penalty = 1.0 - 0.1 * stats[i];
+            return penalty;
+        }
+    }
+
+    return 1.0;
+}
+
 static enum step ai_go(
     struct mcts_ai * restrict const me,
     struct ai_explanation * restrict const explanation)
@@ -830,7 +901,7 @@ static enum step ai_go(
     }
 
     int qbest = 0;
-    int32_t best_qgames = 0;
+    int32_t best_qgames = -2147483648;
     enum step best_steps[QSTEPS];
 
     for (enum step step=0; step<QSTEPS; ++step) {
@@ -840,10 +911,15 @@ static enum step ai_go(
         }
 
         const struct node * const child = me->nodes + ichild;
-        if (child->qgames >= best_qgames) {
-            if (child->qgames > best_qgames) {
+        int32_t qgames = child->qgames;
+        if (me->state_serie->qstats > 1) {
+            qgames = (int32_t)(repeat_penalty(me, step) * qgames);
+        }
+
+        if (qgames >= best_qgames) {
+            if (qgames > best_qgames) {
                 qbest = 0;
-                best_qgames = child->qgames;
+                best_qgames = qgames;
             }
             best_steps[qbest++] = step;
         }
