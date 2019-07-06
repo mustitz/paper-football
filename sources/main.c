@@ -3,6 +3,7 @@
 #include "parser.h"
 
 #include <stdio.h>
+#include <time.h>
 
 #define KW_QUIT             1
 #define KW_PING             2
@@ -17,6 +18,7 @@
 #define KW_TIME            11
 #define KW_SCORE           12
 #define KW_STEPS           13
+#define KW_SRAND           14
 
 #define ITEM(name) { #name, KW_##name }
 struct keyword_desc keywords[] = {
@@ -34,6 +36,7 @@ struct keyword_desc keywords[] = {
     ITEM(TIME),
     ITEM(SCORE),
     ITEM(STEPS),
+    ITEM(SRAND),
     { NULL, 0 }
 };
 
@@ -927,6 +930,24 @@ void process_ai(struct cmd_parser * restrict const me)
     error(lp, "Invalid action in AI command.");
 }
 
+void process_srand(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    if (parser_check_eol(lp)) {
+        srand(time(NULL));
+        return;
+    }
+
+    int value;
+    const int status = parser_read_last_int(lp, &value);
+    if (status != 0) {
+        error(lp, "Integer constant or EOL expected in SRAND command.");
+        return;
+    }
+
+    srand((unsigned int)value);
+}
+
 int process_cmd(struct cmd_parser * restrict const me, const char * const line)
 {
     struct line_parser * restrict const lp = &me->line_parser;
@@ -974,6 +995,9 @@ int process_cmd(struct cmd_parser * restrict const me, const char * const line)
             break;
         case KW_AI:
             process_ai(me);
+            break;
+        case KW_SRAND:
+            process_srand(me);
             break;
         default:
             error(lp, "Unexpected keyword at the begginning of the line.");
