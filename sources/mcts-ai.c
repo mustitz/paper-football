@@ -111,6 +111,9 @@ struct mcts_ai
     size_t free_kick_capacity;
     struct free_kick_serie * state_serie;
     struct free_kick_serie * backup_serie;
+
+    struct cycle_guard cycle_guard;
+    struct cycle_guard backup_cycle_guard;
 };
 
 struct hist_item
@@ -251,7 +254,8 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     const uint32_t free_kick_len = geometry->free_kick_len;
     const uint32_t free_kick_reduce = (free_kick_len - 1) * (free_kick_len - 1);
     const size_t free_kick_capacity = qpoints / free_kick_reduce;
-    const size_t sizes[12] = {
+    const size_t cycle_guard_capacity = 4 + qpoints / free_kick_reduce;
+    const size_t sizes[14] = {
         sizeof(struct mcts_ai),
         sizeof(struct state),
         qpoints,
@@ -263,11 +267,13 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
         sizeof(struct free_kick_serie),
         sizeof(int) * free_kick_capacity,
         sizeof(int) * free_kick_capacity,
+        cycle_guard_capacity * sizeof(struct kick),
+        cycle_guard_capacity * sizeof(struct kick),
         ERROR_BUF_SZ
     };
 
-    void * ptrs[12];
-    void * data = multialloc(12, sizes, ptrs, 64);
+    void * ptrs[14];
+    void * data = multialloc(14, sizes, ptrs, 64);
 
     if (data == NULL) {
         return NULL;
@@ -284,7 +290,9 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     struct free_kick_serie * restrict const backup_serie = ptrs[8];
     int * restrict const backup_serie_points = ptrs[9];
     int * restrict const backup_serie_stats = ptrs[10];
-    char * const error_buf = ptrs[11];
+    struct kick * restrict cycle_guard_kicks = ptrs[11];
+    struct kick * restrict backup_cycle_guard_kicks = ptrs[12];
+    char * const error_buf = ptrs[13];
 
     me->state = state;
     me->backup = backup;
@@ -311,6 +319,14 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     backup_serie->stats = backup_serie_stats;
     backup_serie->qstats = 0;
     backup_serie->serie_qsteps = 0;
+
+    me->cycle_guard.capacity = cycle_guard_capacity;
+    me->cycle_guard.kicks = cycle_guard_kicks;
+    cycle_guard_reset(&me->cycle_guard);
+
+    me->backup_cycle_guard.capacity = cycle_guard_capacity;
+    me->backup_cycle_guard.kicks = backup_cycle_guard_kicks;
+    cycle_guard_reset(&me->backup_cycle_guard);
 
     memcpy(me->params, def_params, sizeof(me->params));
     for (int i=0; i<QPARAMS; ++i) {
@@ -371,6 +387,13 @@ static void save_state(
         memcpy(me->backup_serie->points, me->state_serie->points, sz);
         memcpy(me->backup_serie->stats, me->state_serie->stats, sz);
     }
+
+    const size_t qkicks = me->cycle_guard.qkicks;
+    me->backup_cycle_guard.qkicks = qkicks;
+    if (qkicks > 0) {
+        const size_t sz = qkicks * sizeof(struct kick);
+        memcpy(me->backup_cycle_guard.kicks, me->cycle_guard.kicks, sz);
+    }
 }
 
 static void restore_backup(struct mcts_ai * restrict const me)
@@ -382,6 +405,85 @@ static void restore_backup(struct mcts_ai * restrict const me)
     struct free_kick_serie * old_state_serie = me->state_serie;
     me->state_serie = me->backup_serie;
     me->backup_serie = old_state_serie;
+
+    struct kick * old_kicks = me->cycle_guard.kicks;
+    me->cycle_guard.kicks = me->backup_cycle_guard.kicks;
+    me->backup_cycle_guard.kicks = old_kicks;
+    me->cycle_guard.qkicks = me->backup_cycle_guard.qkicks;
+}
+
+static steps_t forbid_cycles(
+    struct cycle_guard * restrict const cycle_guard,
+    struct state * restrict state,
+    steps_t steps)
+{
+    steps_t cycles = 0;
+    steps_t tmp = steps;
+    while (tmp != 0) {
+        enum step step = extract_step(&tmp);
+        int from = state->ball;
+        int to = state->geometry->free_kicks[QSTEPS * from + step];
+
+        enum cycle_result status = cycle_guard_push(cycle_guard, from, to);
+        switch (status) {
+            case NO_CYCLE:
+                cycle_guard_pop(cycle_guard);
+                break;
+            case CYCLE_FOUND:
+                cycles |= 1 << step;
+                break;
+        }
+    }
+
+    if (steps != cycles) {
+        return steps ^ cycles;
+    }
+
+    /* All steps are cycles! Not possible during 100% AI play, only after user moves */
+    static const steps_t player1_priority[QSTEPS] = {
+        1 << NORTH,
+        1 << NORTH_WEST,
+        1 << NORTH_EAST,
+        1 << EAST,
+        1 << WEST,
+        1 << SOUTH_WEST,
+        1 << SOUTH_EAST,
+        1 << SOUTH,
+    };
+
+    static const steps_t player2_priority[QSTEPS] = {
+        1 << SOUTH,
+        1 << SOUTH_WEST,
+        1 << SOUTH_EAST,
+        1 << EAST,
+        1 << WEST,
+        1 << NORTH_WEST,
+        1 << NORTH_EAST,
+        1 << NORTH,
+    };
+
+    const steps_t * priority;
+    switch (state->active) {
+        case 1:
+            priority = player1_priority;
+            break;
+        case 2:
+            priority = player2_priority;
+            break;
+        default:
+            /* Strange active, no changes */
+            return steps;
+    }
+
+    for (int i=0; i<QSTEPS; ++i) {
+        steps_t mask = priority[i];
+        if (steps & mask) {
+            return mask;
+        }
+    }
+
+    /* Again strange code location */
+    return steps;
 }
 
 static void inc_serie(
@@ -406,6 +508,7 @@ static int state_step_proxy(
     const enum step step)
 {
     struct state * restrict const state = me->state;
+    const int old_ball = state->ball;
     const int old_active = state->active;
     const int result = state_step(state, step);
     const int new_active = state->active;
@@ -421,6 +524,7 @@ static int state_step_proxy(
     switch (new_qsteps){
         case 0:
             serie->qstats = 0;
+            cycle_guard_reset(&me->cycle_guard);
             return result;
         case 1:
         case 2:
@@ -428,6 +532,7 @@ static int state_step_proxy(
             return result;
         default:
             inc_serie(serie, result);
+            cycle_guard_push(&me->cycle_guard, old_ball, result);
             return result;
     }
 }
@@ -538,6 +643,7 @@ int mcts_ai_undo_steps(
     const unsigned int qstep_changes = last_change - ptr;
     state_rollback(me->state, ptr, qstep_changes);
     history->qstep_changes -= qstep_changes;
+    cycle_guard_reset(&me->cycle_guard);
     return 0;
 }
 
@@ -815,6 +921,7 @@ static uint32_t simulate(
     struct node * restrict node)
 {
     struct state * restrict const state = me->backup;
+    struct cycle_guard * restrict const cycle_guard = &me->backup_cycle_guard;
     save_state(me);
 
     if (state->ball == GOAL_1) {
@@ -836,6 +943,14 @@ static uint32_t simulate(
             return qthink;
         }
 
+        const int is_free_kick = state->step1 == INVALID_STEP && state->step12 == 0;
+        const int multiple_ways = answers & (answers - 1);
+        if (multiple_ways) {
+            if (is_free_kick) {
+                answers = forbid_cycles(cycle_guard, state, answers);
+            }
+        }
+
         const enum step step = select_step(me, node, answers);
         ++qthink;
 
@@ -853,6 +968,8 @@ static uint32_t simulate(
 
         add_history(me, node, state->active);
 
+        int old_ball = state->ball;
+        int old_active = state->active;
         state_step(state, step);
         const int status = state_status(state);
 
@@ -868,6 +985,12 @@ static uint32_t simulate(
 
         if (ichild == 0) {
             break;
+        }
+
+        if (is_free_kick && state->active == old_active) {
+            cycle_guard_push(cycle_guard, old_ball, state->ball);
+        } else {
+            cycle_guard_reset(cycle_guard);
         }
     }
 
@@ -925,13 +1048,23 @@ static enum step ai_go(
         explanation->cache.bad_alloc = 0;
     }
 
-    const steps_t steps = state_get_steps(me->state);
+    struct state * restrict state = me->state;
+
+    steps_t steps = state_get_steps(state);
     if (steps == 0) {
         snprintf(me->error_buf, ERROR_BUF_SZ, "no possible steps.");
         return INVALID_STEP;
     }
 
-    const int multiple_ways = steps & (steps - 1);
+    int multiple_ways = steps & (steps - 1);
+    if (multiple_ways) {
+        int is_free_kick = state->step1 == INVALID_STEP && state->step12 == 0;
+        if (is_free_kick) {
+            steps = forbid_cycles(&me->cycle_guard, state, steps);
+            multiple_ways = steps & (steps - 1);
+        }
+    }
+
     if (!multiple_ways) {
         const enum step choice = first_step(steps);
         return choice;
@@ -1029,7 +1162,7 @@ static enum step ai_go(
         explanation->stats = me->stats;
 
         explanation->score = me->stats[0].score;
-        if (me->state->active == 2) {
+        if (state->active == 2) {
             explanation->score = 1.0 - explanation->score;
         }
 
