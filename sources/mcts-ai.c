@@ -18,14 +18,6 @@ enum cycle_result {
     CYCLE_FOUND = 1
 };
 
-struct free_kick_serie
-{
-    int * points;
-    int * stats;
-    size_t qstats;
-    size_t serie_qsteps;
-};
-
 struct kick {
     int from, to, override;
 };
@@ -107,10 +99,6 @@ struct mcts_ai
     struct hist_item * hist_ptr;
     struct hist_item * hist_last;
     uint32_t max_hist_len;
-
-    size_t free_kick_capacity;
-    struct free_kick_serie * state_serie;
-    struct free_kick_serie * backup_serie;
 
     struct cycle_guard cycle_guard;
     struct cycle_guard backup_cycle_guard;
@@ -253,27 +241,20 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     const uint32_t qpoints = geometry->qpoints;
     const uint32_t free_kick_len = geometry->free_kick_len;
     const uint32_t free_kick_reduce = (free_kick_len - 1) * (free_kick_len - 1);
-    const size_t free_kick_capacity = qpoints / free_kick_reduce;
     const size_t cycle_guard_capacity = 4 + qpoints / free_kick_reduce;
-    const size_t sizes[14] = {
+    const size_t sizes[8] = {
         sizeof(struct mcts_ai),
         sizeof(struct state),
         qpoints,
         sizeof(struct state),
         qpoints,
-        sizeof(struct free_kick_serie),
-        sizeof(int) * free_kick_capacity,
-        sizeof(int) * free_kick_capacity,
-        sizeof(struct free_kick_serie),
-        sizeof(int) * free_kick_capacity,
-        sizeof(int) * free_kick_capacity,
         cycle_guard_capacity * sizeof(struct kick),
         cycle_guard_capacity * sizeof(struct kick),
         ERROR_BUF_SZ
     };
 
-    void * ptrs[14];
-    void * data = multialloc(14, sizes, ptrs, 64);
+    void * ptrs[8];
+    void * data = multialloc(8, sizes, ptrs, 64);
 
     if (data == NULL) {
         return NULL;
@@ -284,15 +265,9 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     uint8_t * restrict const lines = ptrs[2];
     struct state * restrict const backup = ptrs[3];
     uint8_t * restrict const backup_lines = ptrs[4];
-    struct free_kick_serie * restrict const state_serie = ptrs[5];
-    int * restrict const state_serie_points = ptrs[6];
-    int * restrict const state_serie_stats = ptrs[7];
-    struct free_kick_serie * restrict const backup_serie = ptrs[8];
-    int * restrict const backup_serie_points = ptrs[9];
-    int * restrict const backup_serie_stats = ptrs[10];
-    struct kick * restrict cycle_guard_kicks = ptrs[11];
-    struct kick * restrict backup_cycle_guard_kicks = ptrs[12];
-    char * const error_buf = ptrs[13];
+    struct kick * restrict cycle_guard_kicks = ptrs[5];
+    struct kick * restrict backup_cycle_guard_kicks = ptrs[6];
+    char * const error_buf = ptrs[7];
 
     me->state = state;
     me->backup = backup;
@@ -305,20 +280,6 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     me->hist_last = NULL;
     me->hist_ptr = NULL;
     me->max_hist_len = 0;
-
-    me->free_kick_capacity = free_kick_capacity;
-
-    me->state_serie = state_serie;
-    state_serie->points = state_serie_points;
-    state_serie->stats = state_serie_stats;
-    state_serie->qstats = 0;
-    state_serie->serie_qsteps = 0;
-
-    me->backup_serie = backup_serie;
-    backup_serie->points = backup_serie_points;
-    backup_serie->stats = backup_serie_stats;
-    backup_serie->qstats = 0;
-    backup_serie->serie_qsteps = 0;
 
     me->cycle_guard.capacity = cycle_guard_capacity;
     me->cycle_guard.kicks = cycle_guard_kicks;
@@ -378,16 +339,6 @@ static void save_state(
 {
     state_copy(me->backup, me->state);
 
-    const size_t qstats = me->state_serie->qstats;
-    me->backup_serie->qstats = qstats;
-    me->backup_serie->serie_qsteps = me->state_serie->serie_qsteps;
-
-    if (qstats > 0) {
-        const size_t sz = qstats * sizeof(int);
-        memcpy(me->backup_serie->points, me->state_serie->points, sz);
-        memcpy(me->backup_serie->stats, me->state_serie->stats, sz);
-    }
-
     const size_t qkicks = me->cycle_guard.qkicks;
     me->backup_cycle_guard.qkicks = qkicks;
     if (qkicks > 0) {
@@ -401,10 +352,6 @@ static void restore_backup(struct mcts_ai * restrict const me)
     struct state * old_state = me->state;
     me->state = me->backup;
     me->backup = old_state;
-
-    struct free_kick_serie * old_state_serie = me->state_serie;
-    me->state_serie = me->backup_serie;
-    me->backup_serie = old_state_serie;
 
     struct kick * old_kicks = me->cycle_guard.kicks;
     me->cycle_guard.kicks = me->backup_cycle_guard.kicks;
@@ -486,55 +433,28 @@ static steps_t forbid_cycles(
     return steps;
 }
 
-static void inc_serie(
-    struct free_kick_serie * restrict const serie,
-    const int point)
-{
-    const size_t qstats = serie->qstats;
-    for (size_t i=0; i<qstats; ++i) {
-        if (serie->points[i] == point) {
-            ++serie->stats[i];
-            return;
-        }
-    }
-
-    serie->points[qstats] = point;
-    serie->stats[qstats] = 1;
-    ++serie->qstats;
-}
-
 static int state_step_proxy(
     struct mcts_ai * restrict const me,
     const enum step step)
 {
     struct state * restrict const state = me->state;
     const int old_ball = state->ball;
-    const int old_active = state->active;
+
+    // Check if this is a penalty kick situation BEFORE state_step
+    int is_free_kick = state->step1 == INVALID_STEP && state->step12 == 0;
+
     const int result = state_step(state, step);
-    const int new_active = state->active;
     if (result < 0) {
         return result;
     }
 
-    struct free_kick_serie * restrict const serie = me->state_serie;
-    const size_t old_qsteps = serie->serie_qsteps;
-    const size_t new_qsteps = new_active == old_active ? old_qsteps+1 : 0;
-    serie->serie_qsteps = new_qsteps;
-
-    switch (new_qsteps){
-        case 0:
-            serie->qstats = 0;
-            cycle_guard_reset(&me->cycle_guard);
-            return result;
-        case 1:
-        case 2:
-        case 3:
-            return result;
-        default:
-            inc_serie(serie, result);
-            cycle_guard_push(&me->cycle_guard, old_ball, result);
-            return result;
+    if (is_free_kick) {
+        cycle_guard_push(&me->cycle_guard, old_ball, result);
+    } else {
+        cycle_guard_reset(&me->cycle_guard);
     }
+
+    return result;
 }
 
 int mcts_ai_do_step(
@@ -1010,29 +930,6 @@ static int compare_stats(
     return 0;
 }
 
-static double repeat_penalty(
-    const struct mcts_ai * const me,
-    const enum step step)
-{
-    const struct free_kick_serie * const serie = me->state_serie;
-    const size_t qstats = serie->qstats;
-    const int * const points = serie->points;
-    const int * const stats = serie->stats;
-    const struct state * const state = me->state;
-    const int ball = state->ball;
-    const struct geometry * const geometry = state->geometry;
-    const int32_t * const free_kicks = geometry->free_kicks;
-    const int next = free_kicks[8*ball + step];
-    for (size_t i=0; i<qstats; ++i) {
-        if (points[i] == next) {
-            const double penalty = 1.0 - 0.1 * stats[i];
-            return penalty;
-        }
-    }
-
-    return 1.0;
-}
-
 static enum step ai_go(
     struct mcts_ai * restrict const me,
     struct ai_explanation * restrict const explanation)
@@ -1116,9 +1013,6 @@ static enum step ai_go(
 
         const struct node * const child = me->nodes + ichild;
         int32_t qgames = child->qgames;
-        if (me->state_serie->qstats > 1) {
-            qgames = (int32_t)(repeat_penalty(me, step) * qgames);
-        }
 
         if (qgames >= best_qgames) {
             if (qgames > best_qgames) {
