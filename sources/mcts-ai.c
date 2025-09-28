@@ -1466,4 +1466,96 @@ int test_cycle_detection(void)
     return 0;
 }
 
+int test_ai_no_cycles(void)
+{
+    struct geometry * restrict const geometry = create_std_geometry(21, 31, 6, 5);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(21, 31, 6, 5) fails, return value is NULL, errno is %d.", errno);
+    }
+
+    struct ai storage;
+    struct ai * restrict const ai = &storage;
+    init_mcts_ai(ai, geometry);
+
+    // Reproduce moves from game 002255 up to the cyclical situation
+    enum step moves[] = {
+        // 1 N NW NE
+        NORTH, NORTH_WEST, NORTH_EAST,
+        // 2 SE S NW S
+        SOUTH_EAST, SOUTH, NORTH_WEST, SOUTH,
+        // 1 NW NW E
+        NORTH_WEST, NORTH_WEST, EAST,
+        // 2 NW NE S S
+        NORTH_WEST, NORTH_EAST, SOUTH, SOUTH,
+        // 1 NW NW NE
+        NORTH_WEST, NORTH_WEST, NORTH_EAST,
+        // 2 W SW SE
+        WEST, SOUTH_WEST, SOUTH_EAST,
+        // 1 W NW NE
+        WEST, NORTH_WEST, NORTH_EAST,
+        // 2 W SW SE
+        WEST, SOUTH_WEST, SOUTH_EAST,
+        // 1 W NW NE
+        WEST, NORTH_WEST, NORTH_EAST,
+        // 2 NW W SE
+        NORTH_WEST, WEST, SOUTH_EAST,
+        // 1 W W NW
+        WEST, WEST, NORTH_WEST,
+        // 2 NE E SW S
+        NORTH_EAST, EAST, SOUTH_WEST, SOUTH,
+    };
+
+    // Apply moves up to the cyclical situation
+    int status = ai->do_steps(ai, ARRAY_LEN(moves), moves);
+    if (status != 0) {
+        test_fail("Failed to apply moves, status %d, error: %s", status, ai->error);
+    }
+
+    // Now engine moved:
+    // 1 NE NE NW E W E W E W E W E W E W E W E W E NE
+
+    status = ai->do_step(ai, NORTH_EAST);
+    if (status != 0) {
+        test_fail("Failed to apply step 1 in the last move, status %d, error: %s", status, ai->error);
+    }
+
+    status = ai->do_step(ai, NORTH_EAST);
+    if (status != 0) {
+        test_fail("Failed to apply step 2 in the last move, status %d, error: %s", status, ai->error);
+    }
+
+    status = ai->do_step(ai, NORTH_WEST);
+    if (status != 0) {
+        test_fail("Failed to apply step 3 in the last move, status %d, error: %s", status, ai->error);
+    }
+
+    status = ai->do_step(ai, EAST);
+    if (status != 0) {
+        test_fail("Failed to apply penalty step 1 in the last move, status %d, error: %s", status, ai->error);
+    }
+
+    status = ai->do_step(ai, WEST);
+    if (status != 0) {
+        test_fail("Failed to apply penalty step 2 in the last move, status %d, error: %s", status, ai->error);
+    }
+
+    // Now EAST might be forbidden by cycle guard
+    // Try 5 times AI
+
+    for (int i = 0; i < 5; ++i) {
+        enum step step = ai->go(ai, NULL);
+        if (step == INVALID_STEP) {
+            test_fail("ai_go() returned INVALID_STEP on iteration %d, error: %s", i, ai->error);
+        }
+
+        if (step == EAST) {
+            test_fail("Try %d: cycle detected!", i);
+        }
+    }
+
+    ai->free(ai);
+    destroy_geometry(geometry);
+    return 0;
+}
+
 #endif
