@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define ARRAY_LEN(a) (sizeof(a)/(sizeof(a[0])))
+
 void * multialloc(
     const size_t n,
     const size_t * const sizes,

@@ -64,6 +64,7 @@ const struct test_item tests[] = {
     { "simulation", &test_simulation },
     { "random-ai-unstep", &test_random_ai_unstep},
     { "mcts-ai-unstep", &test_mcts_ai_unstep},
+    { "cycle-detection", &test_cycle_detection},
     { NULL, NULL }
 };
 
