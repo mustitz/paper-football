@@ -439,9 +439,7 @@ static int state_step_proxy(
 {
     struct state * restrict const state = me->state;
     const int old_ball = state->ball;
-
-    // Check if this is a penalty kick situation BEFORE state_step
-    int is_free_kick = state->step1 == INVALID_STEP && state->step12 == 0;
+    const int is_free_kick = is_free_kick_situation(state);
 
     const int result = state_step(state, step);
     if (result < 0) {
@@ -863,7 +861,7 @@ static uint32_t simulate(
             return qthink;
         }
 
-        const int is_free_kick = state->step1 == INVALID_STEP && state->step12 == 0;
+        const int is_free_kick = is_free_kick_situation(state);
         const int multiple_ways = answers & (answers - 1);
         if (multiple_ways) {
             if (is_free_kick) {
@@ -955,7 +953,7 @@ static enum step ai_go(
 
     int multiple_ways = steps & (steps - 1);
     if (multiple_ways) {
-        int is_free_kick = state->step1 == INVALID_STEP && state->step12 == 0;
+        const int is_free_kick = is_free_kick_situation(state);
         if (is_free_kick) {
             steps = forbid_cycles(&me->cycle_guard, state, steps);
             multiple_ways = steps & (steps - 1);

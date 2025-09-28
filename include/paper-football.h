@@ -109,6 +109,14 @@ enum state_status
     WIN_2
 };
 
+static inline int is_free_kick_situation(const struct state * const state)
+{
+    /* step1 == INVALID_STEP occurs in two cases:
+     * 1. Penalty situation: step12 == 0 (cleared 1-2 steps are nonsence here)
+     * 2. Start of first move: step12 != 0 (contains possble 1-2 step combinations) */
+    return state->step1 == INVALID_STEP && state->step12 == 0;
+}
+
 void init_state(
     struct state * restrict const me,
     const struct geometry * const geometry,
