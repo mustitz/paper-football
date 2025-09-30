@@ -1,5 +1,9 @@
 #include "paper-football.h"
 
+const char * step_names[QSTEPS] = {
+    "NW", "N", "NE", "E", "SE", "S", "SW", "W"
+};
+
 size_t param_sizes[QPARAM_TYPES] = {
     [U32] = sizeof(uint32_t),
     [I32] = sizeof(int32_t),

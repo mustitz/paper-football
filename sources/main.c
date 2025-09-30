@@ -46,10 +46,6 @@ struct keyword_desc keywords[] = {
     { NULL, 0 }
 };
 
-const char * step_names[QSTEPS] = {
-    "NW", "N", "NE", "E", "SE", "S", "SW", "W"
-};
-
 enum ai_go_flags { EXPLAIN_TIME, EXPLAIN_SCORE, EXPLAIN_STEPS, EXPLAIN_CACHE };
 
 struct ai_desc

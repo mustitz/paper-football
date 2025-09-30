@@ -37,6 +37,8 @@ enum step {
     QSTEPS
 };
 
+extern const char * step_names[QSTEPS];
+
 #define INVALID_STEP QSTEPS
 #define ACTIVE_STEP_FREE_KICK  -1
 
