@@ -167,6 +167,8 @@ struct geometry
     uint32_t free_kick_len;
     const int32_t * connections;
     const int32_t * free_kicks;
+    const enum step * straight_free_kick1;
+    const enum step * straight_free_kick2;
 };
 
 struct geometry * create_std_geometry(
