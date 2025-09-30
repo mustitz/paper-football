@@ -169,6 +169,8 @@ struct geometry
     const int32_t * free_kicks;
     const enum step * straight_free_kick1;
     const enum step * straight_free_kick2;
+    const uint32_t * dist_goal1;
+    const uint32_t * dist_goal2;
 };
 
 struct geometry * create_std_geometry(

@@ -170,9 +170,10 @@ struct geometry * create_std_geometry(
     const uint32_t qpoints = (uint32_t)(width) * (uint32_t)(height);
     const size_t board_map_sz = qpoints * QSTEPS * sizeof(uint32_t);
     const size_t straight_sz = qpoints * sizeof(enum step);
-    const size_t sizes[5] = { sizeof(struct geometry), board_map_sz, board_map_sz, straight_sz, straight_sz };
-    void * ptrs[5];
-    void * data = multialloc(5, sizes, ptrs, 256);
+    const size_t dist_sz = qpoints * sizeof(uint32_t);
+    const size_t sizes[7] = { sizeof(struct geometry), board_map_sz, board_map_sz, straight_sz, straight_sz, dist_sz, dist_sz };
+    void * ptrs[7];
+    void * data = multialloc(7, sizes, ptrs, 256);
 
     if (data == NULL) {
         return NULL;
@@ -283,12 +284,69 @@ struct geometry * create_std_geometry(
         straight2[offset] = best_step2;
     }
 
+    uint32_t * restrict dist1 = ptrs[5];
+    uint32_t * restrict dist2 = ptrs[6];
+
+    /* Initialize all distances to 0xFFFFFFFF (unprocessed) */
+    memset(dist1, 0xFF, qpoints * sizeof(uint32_t));
+    memset(dist2, 0xFF, qpoints * sizeof(uint32_t));
+
+    /* BFS for goal1 */
+    uint32_t processed = 0;
+    for (uint32_t depth = 1; processed < qpoints; ++depth) {
+        for (int32_t offset = 0; offset < qpoints; ++offset) {
+            if (dist1[offset] != 0xFFFFFFFF) continue; /* Already processed */
+            for (enum step step = 0; step < QSTEPS; ++step) {
+                const int32_t target = connections[offset * QSTEPS + step];
+                if (target == GOAL_1) {
+                    dist1[offset] = depth;
+                    ++processed;
+                    break;
+                }
+                if (target < 0) {
+                    continue;
+                }
+                if (dist1[target] < depth) {
+                    dist1[offset] = depth;
+                    ++processed;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* BFS for goal2 */
+    processed = 0;
+    for (uint32_t depth = 1; processed < qpoints; ++depth) {
+        for (int32_t offset = 0; offset < qpoints; ++offset) {
+            if (dist2[offset] != 0xFFFFFFFF) continue; /* Already processed */
+            for (enum step step = 0; step < QSTEPS; ++step) {
+                const int32_t target = connections[offset * QSTEPS + step];
+                if (target == GOAL_2) {
+                    dist2[offset] = depth;
+                    ++processed;
+                    break;
+                }
+                if (target < 0) {
+                    continue;
+                }
+                if (dist2[target] < depth) {
+                    dist2[offset] = depth;
+                    ++processed;
+                    break;
+                }
+            }
+        }
+    }
+
     me->qpoints = qpoints;
     me->free_kick_len = free_kick_len;
     me->connections = ptrs[1];
     me->free_kicks = ptrs[2];
     me->straight_free_kick1 = ptrs[3];
     me->straight_free_kick2 = ptrs[4];
+    me->dist_goal1 = ptrs[5];
+    me->dist_goal2 = ptrs[6];
     return me;
 }
 
