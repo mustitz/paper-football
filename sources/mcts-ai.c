@@ -8,10 +8,10 @@
 
 #define QPARAMS   4
 
+static const uint32_t    def_qthink =          1024 * 1024;
 static const uint32_t     def_cache = CACHE_AUTO_CALCULATE;
-static const uint32_t    def_qthink = 1024 * 1024;
-static const uint32_t def_max_depth =         128;
-static const  float           def_C =         1.4;
+static const uint32_t def_max_depth =                  128;
+static const  float           def_C =                  1.4;
 
 enum cycle_result {
     NO_CYCLE = 0,
@@ -124,8 +124,8 @@ static enum step ai_go(
 
 #define OFFSET(name) offsetof(struct mcts_ai, name)
 static struct ai_param def_params[QPARAMS+1] = {
-    {     "cache",     &def_cache, U32, OFFSET(cache) },
     {    "qthink",    &def_qthink, U32, OFFSET(qthink) },
+    {     "cache",     &def_cache, U32, OFFSET(cache) },
     { "max_depth", &def_max_depth, U32, OFFSET(max_depth) },
     {         "C",         &def_C, F32, OFFSET(C) },
     { NULL, NULL, NO_TYPE, 0 }
@@ -137,9 +137,10 @@ static void * move_ptr(void * ptr, size_t offset)
     return base + offset;
 }
 
+static const uint32_t MIN_CACHE_SZ = (16 * sizeof(struct node));
+
 static void reset_cache(struct mcts_ai * restrict const me)
 {
-    me->total_nodes = me->nodes ? me->cache / sizeof(struct node) : 0;
     me->used_nodes = 0;
     me->good_node_alloc = 0;
     me->bad_node_alloc = 0;
@@ -152,40 +153,67 @@ static void free_cache(struct mcts_ai * restrict const me)
         me->nodes = NULL;
     }
 
+    me->total_nodes = 0;
     reset_cache(me);
+}
+
+static int init_cache(struct mcts_ai * restrict const me, unsigned int cache_sz)
+{
+    free_cache(me);
+
+    if (cache_sz == 0) {
+        return 0;
+    }
+
+    me->nodes = malloc(cache_sz);
+    if (me->nodes == NULL) {
+        snprintf(me->error_buf, ERROR_BUF_SZ, "Bad alloc %u bytes (nodes).", me->cache);
+        return ENOMEM;
+    }
+
+    me->total_nodes = cache_sz / sizeof(struct node);
+    reset_cache(me);
+    return 0;
+}
+
+static void calc_cache(
+    struct mcts_ai * restrict const me,
+    const uint32_t qthink)
+{
+    unsigned int cache_sz = 4096 + qthink;
+    if (cache_sz < MIN_CACHE_SZ) {
+        cache_sz = MIN_CACHE_SZ;
+    }
+
+    init_cache(me, cache_sz);
 }
 
 static int set_cache(
     struct mcts_ai * restrict const me,
     const uint32_t * value)
 {
-    const unsigned int node_sz = sizeof(struct node);
-    const unsigned int min_cache_sz = 16 * node_sz;
-    if (*value < min_cache_sz) {
-        snprintf(me->error_buf, ERROR_BUF_SZ, "Too small value for cache, minimum is %u.", min_cache_sz);
+    unsigned int cache_sz = *value;
+    if (*value == CACHE_AUTO_CALCULATE) {
+        calc_cache(me, me->qthink);
+        return 0;
+    }
+
+    if (cache_sz < MIN_CACHE_SZ) {
+        snprintf(me->error_buf, ERROR_BUF_SZ, "Too small value for cache, minimum is %u.", MIN_CACHE_SZ);
         return EINVAL;
     }
 
-    free_cache(me);
+    init_cache(me, cache_sz);
     return 0;
 }
 
-static int init_cache(struct mcts_ai * restrict const me)
+static void set_qthink(
+    struct mcts_ai * restrict const me,
+    const uint32_t * value)
 {
     if (me->cache == CACHE_AUTO_CALCULATE) {
-        me->cache = 4096 + me->qthink;
+        calc_cache(me, *value);
     }
-
-    if (me->nodes == NULL && me->cache > 0) {
-        me->nodes = malloc(me->cache);
-        if (me->nodes == NULL) {
-            snprintf(me->error_buf, ERROR_BUF_SZ, "Bad alloc %u bytes (nodes).", me->cache);
-            return ENOMEM;
-        }
-    }
-
-    reset_cache(me);
-    return 0;
 }
 
 static int set_param(
@@ -200,6 +228,9 @@ static int set_param(
 
     int status = 0;
     switch (param->offset) {
+        case OFFSET(qthink):
+            set_qthink(me, value);
+            break;
         case OFFSET(cache):
             status = set_cache(me, value);
             break;
@@ -967,7 +998,7 @@ static enum step ai_go(
 
     double start = clock();
 
-    init_cache(me);
+    reset_cache(me);
 
     struct node * restrict const zero = alloc_node(me);
     if (zero == NULL) {
@@ -1159,7 +1190,7 @@ int test_node_cache(void)
     struct mcts_ai * restrict const me = ai->data;
 
     for (int j=0; j<3; ++j) {
-        init_cache(me);
+        reset_cache(me);
         for (unsigned int i=0; i<ALLOCATED_NODES; ++i) {
             struct node * restrict const node = alloc_node(me);
             if (node == NULL) {
@@ -1191,7 +1222,7 @@ int test_node_cache(void)
         }
 
         if (j == 1) {
-            free_cache(me);
+            init_cache(me, cache);
         }
     }
 
@@ -1217,7 +1248,7 @@ int test_mcts_history(void)
 
     const uint32_t cache = (HISTORY_QITEMS + 16) * sizeof(struct node);
     ai->set_param(ai, "cache", &cache);
-    init_cache(me);
+    reset_cache(me);
 
     const struct node * nodes[HISTORY_QITEMS];
 
@@ -1268,7 +1299,7 @@ int test_ucb_formula(void)
     }
 
     struct mcts_ai * restrict const me = ai->data;
-    init_cache(me);
+    reset_cache(me);
 
     struct node node;
     node.qgames = 10;
@@ -1350,7 +1381,7 @@ int test_simulation(void)
     ai->set_param(ai, "cache", &cache);
 
     struct mcts_ai * restrict const me = ai->data;
-    init_cache(me);
+    reset_cache(me);
 
     struct node * restrict const zero = alloc_node(me);
     if (zero == NULL) {
