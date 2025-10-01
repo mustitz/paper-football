@@ -477,6 +477,26 @@ static void ai_go(
     printf("\n");
 }
 
+static void ai_debug(struct cmd_parser * restrict const me)
+{
+    struct ai_explanation explanation;
+
+    if (state_status(me->state) != IN_PROGRESS) {
+        fprintf(stderr, "Game over, no moves possible.\n");
+        return;
+    }
+
+    struct ai * restrict const ai = get_ai(me);
+
+    enum step step = ai->go(ai, &explanation);
+    if (step == INVALID_STEP) {
+        fprintf(stderr, "AI move: invalid step.\n");
+        return;
+    }
+
+    explain_step(step, 0xFFFFFFFF, &explanation);
+}
+
 static void ai_info(struct cmd_parser * restrict const me)
 {
     get_ai(me);
@@ -925,6 +945,17 @@ void process_ai_info(struct cmd_parser * restrict const me)
     ai_info(me);
 }
 
+void process_ai_debug(struct cmd_parser * restrict const me)
+{
+    struct line_parser * restrict const lp = &me->line_parser;
+    if (!parser_check_eol(lp)) {
+        error(lp, "End of line expected (AI DEBUG command is parsed), but someting was found.");
+        return;
+    }
+
+    ai_debug(me);
+}
+
 void process_ai(struct cmd_parser * restrict const me)
 {
     struct line_parser * restrict const lp = &me->line_parser;
@@ -940,6 +971,8 @@ void process_ai(struct cmd_parser * restrict const me)
             return process_ai_go(me);
         case KW_INFO:
             return process_ai_info(me);
+        case KW_DEBUG:
+            return process_ai_debug(me);
     }
 
     error(lp, "Invalid action in AI command.");
