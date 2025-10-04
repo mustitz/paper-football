@@ -1,14 +1,17 @@
 import os
 from pathlib import Path
 
-STATS_DIR = Path.home() / 'data' / 'paper-football'
-ENGINES_DIR = STATS_DIR / 'engines' / 'origin'
-
+FILLME = None
+engine_name = FILLME
+commit = FILLME
 qthink_values = [1, 2, 4, 9]
-C_values = [1.0, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8]
+C_values = [0.7, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.6]
+
+STATS_DIR = Path.home() / 'data' / 'paper-football'
+ENGINES_DIR = STATS_DIR / 'engines' / engine_name
 
 template = """binary: paper-football
-commit: 50be8fcb1d46973e2de08a6ee6ca8258e000c6ad
+commit: {commit}
 params:
   qthink: {qthink}
   max_depth: 128
@@ -30,7 +33,7 @@ for qthink in qthink_values:
         if config_file.exists():
             print(f"Skipped: {engine_name} (already exists)")
 
-        content = template.format(qthink=qthink, C=C)
+        content = template.format(commit=commit, qthink=qthink, C=C)
 
         with open(config_file, 'w') as f:
             f.write(content)
