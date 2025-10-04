@@ -64,9 +64,10 @@ def pp_tourney(tourney_name):
         results = []
         for p2 in players:
             if p1.name == p2.name:
-                results.append('=' * max_results)
-                continue
-            results.append(p1.results.get(p2.name, '').ljust(max_results, '.'))
+                if len(players) > 2:
+                    results.append('=' * max_results)
+            else:
+                results.append(p1.results.get(p2.name, '').ljust(max_results, '.'))
         results = ' '.join(results)
         print(f"{i:2d}. {p1.name:<{name_width}}   {results} {p1.score:5d}")
 
