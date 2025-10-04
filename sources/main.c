@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <time.h>
 
+#define MAX_ENGINE_STEPS 100
+
 #define KW_QUIT             1
 #define KW_PING             2
 #define KW_STATUS           3
@@ -451,7 +453,7 @@ static void ai_go(
     state_copy(me->backup, state);
     const unsigned int history_qstep_changes = me->history.qstep_changes;
 
-    for (;;) {
+    for (int qsteps = 0; ; ++qsteps) {
         const int ball = state_step(state, step);
         if (ball == NO_WAY) {
             printf("\n");
@@ -478,6 +480,11 @@ static void ai_go(
         ;
 
         if (is_done) {
+            break;
+        }
+
+        if (qsteps >= MAX_ENGINE_STEPS) {
+            printf("WARN: ai_go reached maximum steps limit (%d), stopping.\n", MAX_ENGINE_STEPS);
             break;
         }
 
