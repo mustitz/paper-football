@@ -1526,6 +1526,13 @@ int test_mcts_ai_unstep(void)
     const struct state * const state = ai->get_state(ai);
     while (state_status(state) == IN_PROGRESS) {
         const enum step step = ai->go(ai, NULL);
+
+        const struct warn * warn = ai->get_warn(ai, 0);
+        if (warn != NULL) {
+            test_fail("Warning after ai->go() at step %u: %s (at %s:%d)",
+                qsteps, warn->msg, warn->file_name, warn->line_num);
+        }
+
         ai->do_step(ai, step);
         ++qsteps;
     }
@@ -1687,6 +1694,12 @@ int test_ai_no_cycles(void)
         enum step step = ai->go(ai, NULL);
         if (step == INVALID_STEP) {
             test_fail("ai_go() returned INVALID_STEP on iteration %d, error: %s", i, ai->error);
+        }
+
+        const struct warn * warn = ai->get_warn(ai, 0);
+        if (warn != NULL) {
+            test_fail("Warning after ai->go() on iteration %d: %s (at %s:%d)",
+                i, warn->msg, warn->file_name, warn->line_num);
         }
 
         if (step == EAST) {
