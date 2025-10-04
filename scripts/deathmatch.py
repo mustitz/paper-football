@@ -51,15 +51,20 @@ def _run_game(arbiter, engine1, engine2):
             return -1
         error("invalid status")
 
-    def check(move):
+    def check(move, active):
         success, errs = arbiter.move(move)
-        if success:
-            return True
+        if not success:
+            print(f"Arbiter rejected move: {move}")
+            for line in errs:
+                print(f"  Error: {line}")
+            return False
 
-        print(f"Arbiter rejected move: {move}")
-        for line in errs:
-            print(f"  Error: {line}")
-        return False
+        st, _ = arbiter.status()
+        if st.winner is None and st.active != active:
+            print(f"Move {move} did not change active player to {active} (got {st.active}, too long move?)")
+            return False
+
+        return True
 
     def opp(engine, num, move):
         success, errs = engine.move(move)
@@ -87,7 +92,7 @@ def _run_game(arbiter, engine1, engine2):
         print(f"1> {move}")
         protocol.move(1, move, stats)
 
-        if not check(move):
+        if not check(move, 2):
             protocol.fail(f"Check failed for move {move} from engine 1.")
             protocol.set_result(-1)
             return protocol
@@ -108,7 +113,7 @@ def _run_game(arbiter, engine1, engine2):
         print(f"2> {move}")
         protocol.move(2, move, stats)
 
-        if not check(move):
+        if not check(move, 1):
             protocol.fail(f"Check failed for move {move} from engine 2.")
             protocol.set_result(+1)
             return protocol
