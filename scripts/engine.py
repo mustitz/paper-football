@@ -58,10 +58,14 @@ class Engine:
         return self._send("status")
 
     def go(self, with_stats=False):
-        cmd = "ai go time,score,steps" if with_stats else "ai go"
+        stat_list = ['time', 'score', 'steps', 'cache']
+        stats = ' ' + ','.join(stat_list) if with_stats else ''
+
+        cmd = "ai go" + stats
         lines, errs = self._send(cmd)
 
         if not lines:
+            print(*errs)
             raise RuntimeError("No response from ai go command")
 
         moves = lines[-1]
