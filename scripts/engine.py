@@ -2,8 +2,11 @@ import subprocess
 from typing import List, Optional
 from select import select
 from random import randrange
+from collections import namedtuple
 
 from utils import counter
+
+Status = namedtuple('Status', ['active', 'winner'])
 
 class Engine:
     def __init__(self, name, path, dims, **params):
@@ -55,7 +58,31 @@ class Engine:
         return lines, errors
 
     def status(self):
-        return self._send("status")
+        lines, errs = self._send("status")
+
+        active = None
+        winner = None
+
+        for line in lines:
+            if ':' not in line:
+                continue
+            name, val = line.split(':', maxsplit=1)
+            name = name.lower().strip()
+            val = val.lower().strip()
+
+            if name == 'active player':
+                active = int(val)
+            elif name == 'status':
+                if val == 'in progress':
+                    pass  # active already set
+                elif 'player 1 win' in val:
+                    winner = 1
+                    active = None
+                elif 'player 2 win' in val:
+                    winner = 2
+                    active = None
+
+        return Status(active=active, winner=winner), errs
 
     def go(self, with_stats=False):
         stat_list = ['time', 'score', 'steps', 'cache']

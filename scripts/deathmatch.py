@@ -37,31 +37,19 @@ def run_game(arbiter_config, engine1_config, engine2_config, dims):
 
 def _run_game(arbiter, engine1, engine2):
     def status():
-        lines, errs = arbiter.status()
+        st, errs = arbiter.status()
         if errs:
             for err in errs:
                 print("ERROR:", err)
             error("arbiter.status()")
 
-        for line in lines:
-            name, val = line.split(':', maxsplit=1)
-            name = name.lower().strip()
-            val = val.lower().strip()
-
-            if name == 'ball position':
-                print("Ball:", val)
-
-            if name == 'status':
-                status = val
-                if status == 'in progress':
-                    return 0
-                if '1 win' in status:
-                    return +1
-                if '2 win' in status:
-                    return -1
-                error("invalid status")
-
-        error("no status")
+        if st.active is not None:
+            return 0  # in progress
+        if st.winner == 1:
+            return +1
+        if st.winner == 2:
+            return -1
+        error("invalid status")
 
     def check(move):
         success, errs = arbiter.move(move)
@@ -83,7 +71,7 @@ def _run_game(arbiter, engine1, engine2):
             print(f"  Error: {line}")
         return False
 
-    lines, errs = arbiter.status()
+    st, errs = arbiter.status()
     if errs:
         for err in errs:
             print("ERROR:", err)
