@@ -4,6 +4,38 @@ from tournament import make_schedule
 from deathmatch import load_engine
 from utils import Dims
 
+FILLME = None
+BAD_TYPE = True
+
+CMATCH, TPLAY = 1, 2
+TYPE = FILLME
+
+DIMS = Dims(21, 31, 6, 5)
+
+if TYPE == CMATCH:
+    c = FILLME
+    qthink = FILLME
+    engine1, engine2 = FILLME, FILLME
+
+    test_engine = max(engine1, engine2)
+    name = f'c-{test_engine:04d}-{qthink}M'
+    engines = [ f'dev-{n:04}/{qthink}M-C{c:.1f}' for n in (engine1, engine2) ]
+    cycles = 100
+    BAD_TYPE = False
+
+if TYPE == TPLAY:
+    engine = FILLME
+    cycles = FILLME
+    qthink = FILLME
+
+    name = f't-{engine:04d}-{qthink}M'
+    engine_type = f'dev-{engine:04d}'
+    qthinks = [qthink]
+    engines = []
+    Cs = [0.7, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.6]
+    BAD_TYPE = False
+
+
 STATS_DIR = Path.home() / 'data' / 'paper-football'
 TOURNEY_DIR = STATS_DIR / 'tournaments'
 
@@ -39,13 +71,13 @@ def create_tourney(name, qcycles, dims, *engines):
     print(f"File: {fn}")
 
 if __name__ == "__main__":
-    name = sys.argv[1]
-    dims = Dims(21, 31, 6, 5)
+    if BAD_TYPE:
+        raise Exception(f"Wrong TYPE value ({TYPE}), recheck settings")
 
-    engines = []
-    for qthink in [0.5, 1, 2, 5]:
-        for C in [0.3, 0.7, 1.4, 2.0, 4.0]:
-            qthink_str = f"{qthink}M" if qthink != int(qthink) else f"{int(qthink)}M"
-            engines.append(f"origin/{qthink_str}-C{C}")
+    if not engines:
+        for qthink in qthinks:
+            for C in Cs:
+                qthink_str = f"{qthink}M" if qthink != int(qthink) else f"{int(qthink)}M"
+                engines.append(f"{engine_type}/{qthink_str}-C{C}")
 
-    create_tourney(name, 4, dims, *engines)
+    create_tourney(name, cycles, DIMS, *engines)
