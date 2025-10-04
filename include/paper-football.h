@@ -9,6 +9,7 @@
 #include <string.h>
 
 #define ARRAY_LEN(a) (sizeof(a)/(sizeof(a[0])))
+#define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
 void * multialloc(
     const size_t n,
@@ -204,6 +205,17 @@ struct ai_param
     size_t offset;
 };
 
+struct warn {
+    const char * msg;
+    const char * param1;
+    uint64_t value1;
+    const char * param2;
+    uint64_t value2;
+    const char * file_name;
+    int line_num;
+    int num;
+};
+
 struct ai
 {
     void * data;
@@ -240,6 +252,10 @@ struct ai
     const struct state * (*get_state)(const struct ai * const ai);
 
     void (*free)(struct ai * restrict const ai);
+
+    const struct warn * (*get_warn)(
+        struct ai * restrict const ai,
+        int index);
 };
 
 int init_random_ai(

@@ -13,6 +13,25 @@ static const uint32_t     def_cache = CACHE_AUTO_CALCULATE;
 static const uint32_t def_max_depth =                  128;
 static const  float           def_C =                  1.4;
 
+#define WARN(me, name, pname1, pvalue1, pname2, pvalue2) \
+    warn(me, WARN_##name, pname1, (uint64_t)pvalue1, pname2, (uint64_t)pvalue2, __FILENAME__, __LINE__)
+
+enum warn_nums {
+    WARN_WRONG_WARN = 1,
+    WARN_STEPS_ARE_CYCLES,
+    WARN_ACTIVE_OOR,
+    WARN_INCONSISTERN_STEPS_PRIORITY,
+    QWARNS
+};
+
+const char * warn_messages[QWARNS] = {
+    [WARN_WRONG_WARN] = "Wrong warning",
+    [WARN_STEPS_ARE_CYCLES] = "All steps are cycles!",
+    [WARN_ACTIVE_OOR] = "state->active value is out of range",
+    [WARN_INCONSISTERN_STEPS_PRIORITY] = "Inconsistent values for steps/priories",
+    [0] = "???"
+};
+
 enum cycle_result {
     NO_CYCLE = 0,
     CYCLE_FOUND = 1
@@ -102,6 +121,9 @@ struct mcts_ai
 
     struct cycle_guard cycle_guard;
     struct cycle_guard backup_cycle_guard;
+
+    struct warn warns[QWARNS];
+    int qwarns;
 };
 
 struct hist_item
@@ -135,6 +157,64 @@ static void * move_ptr(void * ptr, size_t offset)
 {
     char * restrict const base = ptr;
     return base + offset;
+}
+
+static void warn(
+    struct mcts_ai * restrict const me,
+    int num,
+    const char * param1,
+    uint64_t value1,
+    const char * param2,
+    uint64_t value2,
+    const char * file_name,
+    int line_num)
+{
+    if (num <= 0 || num >= QWARNS) {
+        WARN(me, WRONG_WARN, "num", num, NULL, 0);
+        return;
+    }
+
+    for (int i=0; i<me->qwarns; ++i) {
+        if (me->warns[i].num == num) {
+            /* Already have it */
+            return;
+        }
+    }
+
+    int i = me->qwarns;
+    if (i >= QWARNS) {
+        /* Overflow */
+        return;
+    }
+
+    struct warn * restrict const warn = me->warns + i;
+    warn->num = num;
+    warn->msg = warn_messages[num];
+    warn->param1 = param1;
+    warn->param2 = param2;
+    warn->value1 = value1;
+    warn->value2 = value2;
+    warn->file_name = file_name;
+    warn->line_num = line_num;
+    ++me->qwarns;
+}
+
+void reset_warns(
+    struct mcts_ai * restrict const me)
+{
+    me->qwarns = 0;
+}
+
+static const struct warn * mcts_ai_get_warn(
+    struct ai * restrict const ai,
+    int index)
+{
+    struct mcts_ai * restrict const me = ai->data;
+    if (index < 0 || index >= me->qwarns) {
+        return NULL;
+    }
+
+    return me->warns + index;
 }
 
 static const uint32_t MIN_CACHE_SZ = (16 * sizeof(struct node));
@@ -391,6 +471,7 @@ static void restore_backup(struct mcts_ai * restrict const me)
 }
 
 static steps_t forbid_cycles(
+    struct mcts_ai * restrict const me,
     struct cycle_guard * restrict const cycle_guard,
     struct state * restrict state,
     steps_t steps)
@@ -417,7 +498,8 @@ static steps_t forbid_cycles(
         return steps ^ cycles;
     }
 
-    /* All steps are cycles! Not possible during 100% AI play, only after user moves */
+    WARN(me, STEPS_ARE_CYCLES, "steps", steps, "cycles", cycles);
+
     static const steps_t player1_priority[QSTEPS] = {
         1 << NORTH,
         1 << NORTH_WEST,
@@ -449,7 +531,7 @@ static steps_t forbid_cycles(
             priority = player2_priority;
             break;
         default:
-            /* Strange active, no changes */
+            WARN(me, ACTIVE_OOR, "active", state->active, NULL, 0);
             return steps;
     }
 
@@ -460,7 +542,7 @@ static steps_t forbid_cycles(
         }
     }
 
-    /* Again strange code location */
+    WARN(me, INCONSISTERN_STEPS_PRIORITY, "steps", steps, "active", state->active);
     return steps;
 }
 
@@ -688,6 +770,7 @@ int init_mcts_ai(
     ai->get_params = mcts_ai_get_params;
     ai->set_param = mcts_ai_set_param;
     ai->get_state = mcts_ai_get_state;
+    ai->get_warn = mcts_ai_get_warn;
     ai->free = free_mcts_ai;
 
     return 0;
@@ -896,7 +979,7 @@ static uint32_t simulate(
         const int multiple_ways = answers & (answers - 1);
         if (multiple_ways) {
             if (is_free_kick) {
-                answers = forbid_cycles(cycle_guard, state, answers);
+                answers = forbid_cycles(me, cycle_guard, state, answers);
             }
         }
 
@@ -963,6 +1046,8 @@ static enum step ai_go(
     struct mcts_ai * restrict const me,
     struct ai_explanation * restrict const explanation)
 {
+    reset_warns(me);
+
     if (explanation) {
         explanation->qstats = 0;
         explanation->stats = NULL;
@@ -986,7 +1071,7 @@ static enum step ai_go(
     if (multiple_ways) {
         const int is_free_kick = is_free_kick_situation(state);
         if (is_free_kick) {
-            steps = forbid_cycles(&me->cycle_guard, state, steps);
+            steps = forbid_cycles(me, &me->cycle_guard, state, steps);
             multiple_ways = steps & (steps - 1);
         }
     }
