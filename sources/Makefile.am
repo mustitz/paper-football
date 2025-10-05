@@ -6,7 +6,7 @@ BUILT_SOURCES = hashes.h
 if DEBUG_MODE
 EXTRA_CFLAGS = -g3 -O0 -Wall -Werror
 else
-EXTRA_CFLAGS = -Ofast
+EXTRA_CFLAGS = -O3
 endif
 
 
