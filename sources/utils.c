@@ -2,19 +2,6 @@
 
 #include <stdio.h>
 
-static inline ptrdiff_t ptr_diff(const void * const a, const void * const b)
-{
-    const char * const byte_ptr_a = a;
-    const char * const byte_ptr_b = b;
-    return byte_ptr_b - byte_ptr_a;
-}
-
-static inline void * ptr_move(void * const ptr, const ptrdiff_t delta)
-{
-    char * const byte_ptr = ptr;
-    return byte_ptr + delta;
-}
-
 void * multialloc(const size_t n, const size_t * const sizes,
     void * restrict * ptrs, const size_t granularity)
 {

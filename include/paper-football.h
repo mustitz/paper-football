@@ -11,11 +11,97 @@
 #define ARRAY_LEN(a) (sizeof(a)/(sizeof(a[0])))
 #define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
+static inline ptrdiff_t ptr_diff(const void * const a, const void * const b)
+{
+    const char * const byte_ptr_a = a;
+    const char * const byte_ptr_b = b;
+    return byte_ptr_b - byte_ptr_a;
+}
+
+static inline void * ptr_move(void * const ptr, const ptrdiff_t delta)
+{
+    char * const byte_ptr = ptr;
+    return byte_ptr + delta;
+}
+
 void * multialloc(
     const size_t n,
     const size_t * const sizes,
     void * restrict * ptrs,
     const size_t granularity);
+
+/*
+ * Double linked lists.
+ */
+
+struct dlist
+{
+    struct dlist * next;
+    struct dlist * prev;
+};
+
+static inline void dlist_init(struct dlist * restrict const me)
+{
+    me->next = me;
+    me->prev = me;
+}
+
+static inline int is_dlist_empty(const struct dlist * const me)
+{
+    return me->next == me;
+}
+
+static inline void dlist_insert_after(
+    struct dlist * const infant,
+    struct dlist * const prev)
+{
+    struct dlist * next = prev->next;
+    infant->next = next;
+    infant->prev = prev;
+    next->prev = infant;
+    prev->next = infant;
+};
+
+static inline void dlist_insert_before(
+    struct dlist * const infant,
+    struct dlist * const next)
+{
+    struct dlist * prev = next->prev;
+    infant->next = next;
+    infant->prev = prev;
+    prev->next = infant;
+    next->prev = infant;
+}
+
+static inline void dlist_remove(
+    struct dlist * const creaker)
+{
+    creaker->prev->next = creaker->next;
+    creaker->next->prev = creaker->prev;
+}
+
+static inline void dlist_move_all(
+    struct dlist * restrict const dst,
+    struct dlist * restrict const src)
+{
+    if (is_dlist_empty(src)) {
+        return;
+    }
+
+    struct dlist * src_first = src->next;
+    struct dlist * src_last = src->prev;
+    struct dlist * dst_last = dst->prev;
+
+    dst_last->next = src_first;
+    src_first->prev = dst_last;
+
+    src_last->next = dst;
+    dst->prev = src_last;
+
+    dlist_init(src);
+}
+
+
 
 void debug_trap(void);
 
