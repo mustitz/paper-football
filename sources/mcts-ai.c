@@ -248,6 +248,7 @@ struct bsf_free_kicks
     int capacity;
     int max_depth;
     int max_alts;
+    int max_visits;
     int stats_sz;
     struct dlist free;
     struct dlist waiting;
@@ -257,6 +258,7 @@ struct bsf_free_kicks
     struct bsf_serie * win;
     struct bsf_serie * loose;
     int * alts;
+    int * visits;
 };
 
 enum add_serie_status
@@ -377,18 +379,28 @@ void bsf_free_kicks(
     struct bsf_free_kicks * const me)
 {
     const int max_depth = me->max_depth;
+    const int max_visits = me->max_visits;
 
+    struct dlist * restrict const free = &me->free;
     struct dlist * restrict const waiting = &me->waiting;
     struct dlist * restrict const used = &me->used;
 
     while (!is_dlist_empty(waiting)) {
         struct dlist * first = waiting->next;
         dlist_remove(first);
-        dlist_insert_after(first, used);
 
         struct bsf_node * restrict const parent = bsf_node(first);
         struct state * restrict const prev = parent->state;
+        const int prev_ball = prev->ball;
         const int depth = parent->depth;
+
+        const int qvisits = ++me->visits[prev_ball];
+        if (qvisits >= max_visits) {
+            dlist_insert_after(first, free);
+            continue;
+        }
+
+        dlist_insert_after(first, used);
 
         steps_t steps = state_get_steps(prev);
         while (steps) {
@@ -402,10 +414,10 @@ void bsf_free_kicks(
 
             struct state * restrict const next = child->state;
             state_copy(next, prev);
-            int ball = state_step(next, step);
+            int next_ball = state_step(next, step);
 
-            if (ball < 0 || !is_free_kick_situation(next)) {
-                enum add_serie_status status = add_serie(ai, me, parent, prev->active, step, ball);
+            if (next_ball < 0 || !is_free_kick_situation(next)) {
+                enum add_serie_status status = add_serie(ai, me, parent, prev->active, step, next_ball);
                 bsf_dealloc(me, child);
 
                 if (me->win) {
@@ -429,7 +441,7 @@ void bsf_free_kicks(
             }
 
             struct cycle_guard * restrict const guard = parent->guard;
-            enum cycle_result status = cycle_guard_push(guard, prev->ball, ball);
+            enum cycle_result status = cycle_guard_push(guard, prev_ball, next_ball);
             if (status == CYCLE_FOUND) {
                 bsf_dealloc(me, child);
                 continue;
@@ -450,7 +462,8 @@ struct bsf_free_kicks * create_bsf_free_kicks(
     const struct geometry * const geometry,
     int capacity,
     int max_depth,
-    int max_alts)
+    int max_alts,
+    int max_visits)
 {
     const uint32_t qpoints = geometry->qpoints;
     const uint32_t free_kick_len = geometry->free_kick_len;
@@ -459,7 +472,7 @@ struct bsf_free_kicks * create_bsf_free_kicks(
 
     const int max_depth_aligned = (max_depth + 7) & ~7;
     const int stats_sz = qpoints * sizeof(int);
-    const size_t sizes[9] = {
+    const size_t sizes[10] = {
         sizeof(struct bsf_free_kicks),
         capacity * sizeof(struct bsf_serie),
         capacity * max_depth_aligned * sizeof(enum step),
@@ -468,11 +481,11 @@ struct bsf_free_kicks * create_bsf_free_kicks(
         capacity * qpoints,
         capacity * sizeof(struct cycle_guard),
         capacity * guard_capacity * sizeof(struct kick),
-        stats_sz,
+        stats_sz, stats_sz,
     };
 
-    void * ptrs[9];
-    void * data = multialloc(9, sizes, ptrs, 64);
+    void * ptrs[10];
+    void * data = multialloc(10, sizes, ptrs, 64);
 
     if (data == NULL) {
         return NULL;
@@ -487,11 +500,13 @@ struct bsf_free_kicks * create_bsf_free_kicks(
     struct cycle_guard * restrict const guards = ptrs[6];
     struct kick * restrict const kicks_base = ptrs[7];
     int * restrict const alts = ptrs[8];
+    int * restrict const visits = ptrs[9];
 
     me->qseries = 0;
     me->capacity = capacity - 2;
     me->max_depth = max_depth;
     me->max_alts = max_alts;
+    me->max_visits = max_visits;
     me->stats_sz = stats_sz;
 
     me->root = NULL;
@@ -499,6 +514,7 @@ struct bsf_free_kicks * create_bsf_free_kicks(
     me->win = NULL;
     me->loose = NULL;
     me->alts = alts;
+    me->visits = visits;
 
     dlist_init(&me->free);
     dlist_init(&me->waiting);
@@ -558,6 +574,7 @@ void bsf_gen(
     me->root = root;
 
     memset(me->alts, 0, me->stats_sz);
+    memset(me->visits, 0, me->stats_sz);
     bsf_free_kicks(ai, me);
 }
 
