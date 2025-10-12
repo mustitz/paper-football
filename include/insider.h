@@ -18,3 +18,8 @@ int test_random_ai_unstep(void);
 int test_mcts_ai_unstep(void);
 int test_cycle_detection(void);
 int test_ai_no_cycles(void);
+int test_gen_complete_free_kicks(void);
+int test_gen_complete_free_kicks_win(void);
+int test_long_free_kick_to_win(void);
+int test_long_free_kick_to_loose(void);
+int test_gen_complete_free_kicks_long(void);

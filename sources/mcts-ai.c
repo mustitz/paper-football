@@ -1554,6 +1554,7 @@ static enum step ai_go(
 #ifdef MAKE_CHECK
 
 #include "insider.h"
+#include "games-db-inc.c"
 
 #define BW   15
 #define BH   23
@@ -1986,36 +1987,22 @@ int test_ai_no_cycles(void)
     struct ai * restrict const ai = &storage;
     init_mcts_ai(ai, geometry);
 
-    // Reproduce moves from game 002255 up to the cyclical situation
-    enum step moves[] = {
-        // 1 N NW NE
+    enum step game_002255[] = {
         NORTH, NORTH_WEST, NORTH_EAST,
-        // 2 SE S NW S
         SOUTH_EAST, SOUTH, NORTH_WEST, SOUTH,
-        // 1 NW NW E
         NORTH_WEST, NORTH_WEST, EAST,
-        // 2 NW NE S S
         NORTH_WEST, NORTH_EAST, SOUTH, SOUTH,
-        // 1 NW NW NE
         NORTH_WEST, NORTH_WEST, NORTH_EAST,
-        // 2 W SW SE
         WEST, SOUTH_WEST, SOUTH_EAST,
-        // 1 W NW NE
         WEST, NORTH_WEST, NORTH_EAST,
-        // 2 W SW SE
         WEST, SOUTH_WEST, SOUTH_EAST,
-        // 1 W NW NE
         WEST, NORTH_WEST, NORTH_EAST,
-        // 2 NW W SE
         NORTH_WEST, WEST, SOUTH_EAST,
-        // 1 W W NW
         WEST, WEST, NORTH_WEST,
-        // 2 NE E SW S
         NORTH_EAST, EAST, SOUTH_WEST, SOUTH,
     };
 
-    // Apply moves up to the cyclical situation
-    int status = ai->do_steps(ai, ARRAY_LEN(moves), moves);
+    int status = ai->do_steps(ai, ARRAY_LEN(game_002255), game_002255);
     if (status != 0) {
         test_fail("Failed to apply moves, status %d, error: %s", status, ai->error);
     }
@@ -2070,6 +2057,192 @@ int test_ai_no_cycles(void)
 
     ai->free(ai);
     destroy_geometry(geometry);
+    return 0;
+}
+
+struct bsf_free_kicks * run_bsf(const enum step * const moves, int qmoves)
+{
+    const int MAX_DEPTH = 100;
+    const int MAX_SERIES = 200;
+
+    struct geometry * restrict const geometry = create_std_geometry(21, 31, 6, 5);
+    if (geometry == NULL) {
+        test_fail("create_std_geometry(21, 31, 6, 5) fails, return value is NULL, errno is %d.", errno);
+    }
+
+    struct ai storage;
+    struct ai * restrict const ai = &storage;
+    init_mcts_ai(ai, geometry);
+    struct mcts_ai * restrict const me = ai->data;
+
+    int status = ai->do_steps(ai, qmoves, moves);
+    if (status != 0) {
+        test_fail("Failed to apply moves, status %d, error: %s", status, ai->error);
+    }
+
+    const struct state * state = ai->get_state(ai);
+    if (!is_free_kick_situation(state)) {
+        test_fail("Expected penalty situation after moves, but got normal situation");
+    }
+
+    struct bsf_free_kicks * fks = create_bsf_free_kicks(geometry, MAX_SERIES, MAX_DEPTH, 8, 8);
+    if (fks == NULL) {
+        test_fail("create_bsf_free_kicks failed");
+    }
+
+    bsf_gen(me, fks, state, &me->cycle_guard);
+
+    // Check for warnings during generation
+    const struct warn * warn = ai->get_warn(ai, 0);
+    if (warn != NULL) {
+        test_fail("Warning after bsf_gen: %s (at %s:%d)",
+            warn->msg, warn->file_name, warn->line_num);
+    }
+
+    // Validate all generated series by replaying them
+    struct state * restrict const current = create_state(geometry);
+    if (current == NULL) {
+        test_fail("Failed to create test state for validation");
+    }
+
+    for (int i = 0; i < fks->qseries; ++i) {
+        struct bsf_serie * serie = &fks->series[i];
+        const int qsteps = serie->qsteps;
+
+        if (qsteps <= 0 || qsteps > fks->max_depth) {
+            test_fail("Serie %d has invalid qsteps: %d", i, qsteps);
+        }
+
+        state_copy(current, state);
+
+        // All steps except last should stay in penalty situation
+        for (int j = 0; j < qsteps - 1; ++j) {
+            enum step step = serie->steps[j];
+            if (step < 0 || step >= QSTEPS) {
+                test_fail("Serie %d step %d is invalid: %d", i, j, step);
+            }
+
+            int ball = state_step(current, step);
+            if (ball == NO_WAY) {
+                test_fail("Serie %d step %d (%s) is blocked", i, j, step_names[step]);
+            }
+
+            if (!is_free_kick_situation(current)) {
+                test_fail("Serie %d step %d exits penalty before end", i, j);
+            }
+        }
+
+        // Last step should exit penalty
+        enum step last_step = serie->steps[qsteps - 1];
+        int ball = state_step(current, last_step);
+        if (ball == NO_WAY) {
+            test_fail("Serie %d last step (%s) is blocked", i, step_names[last_step]);
+        }
+
+        if (ball != serie->ball) {
+            test_fail("Serie %d: final ball %d != expected %d", i, ball, serie->ball);
+        }
+
+        if (ball >= 0 && ball < geometry->qpoints && is_free_kick_situation(current)) {
+            test_fail("Serie %d ends in penalty situation at ball=%d", i, ball);
+        }
+
+        if (is_free_kick_situation(current)) {
+            test_fail("Serie %d still in penalty after all steps", i);
+        }
+    }
+
+    destroy_state(current);
+    ai->free(ai);
+    destroy_geometry(geometry);
+    return fks;
+}
+
+int test_gen_complete_free_kicks(void)
+{
+    // Create simple penalty situation: 1 NW NW NE, 2 SE S NW
+    enum step test1[] = {
+        NORTH_WEST, NORTH_WEST, NORTH_EAST,
+        SOUTH_EAST, SOUTH, NORTH_WEST
+    };
+
+    struct bsf_free_kicks * restrict const fks = run_bsf(test1, ARRAY_LEN(test1));
+    if (fks->qseries != 8) {
+        test_fail("bsf_gen returned %d series, expected 8", fks->qseries);
+    }
+
+    free(fks);
+    return 0;
+}
+
+int test_gen_complete_free_kicks_win(void)
+{
+    // Short game ending with penalty and goal
+    struct bsf_free_kicks * restrict const fks = run_bsf(game_000461, ARRAY_LEN(game_000461));
+
+    if (fks->win == NULL) {
+        test_fail("Win path not detected in game 000461");
+    }
+
+    if (fks->win->ball != GOAL_1) {
+        test_fail("Win path leads to wrong goal: %d (expected GOAL_1=%d)", fks->win->ball, GOAL_1);
+    }
+
+    if (fks->win->qsteps != 1) {
+        test_fail("Win path has %d steps, expected 1", fks->win->qsteps);
+    }
+
+    free(fks);
+    return 0;
+}
+
+int test_long_free_kick_to_win(void)
+{
+    // Last move sequence: NW N SE (regular move) + W SE SW SW (4-step penalty to GOAL_2)
+    // We run BFS on position before last penalty (cut last 4 steps)
+    struct bsf_free_kicks * restrict const fks = run_bsf(game_000050, ARRAY_LEN(game_000050) - 4);
+
+    if (fks->win == NULL) {
+        test_fail("Win path not detected in game 000050");
+    }
+
+    if (fks->win->ball != GOAL_2) {
+        test_fail("Win path leads to wrong goal: %d (expected GOAL_2=%d)", fks->win->ball, GOAL_2);
+    }
+
+    if (fks->win->qsteps > 4) {
+        test_fail("Win path has %d steps, expected <= 4", fks->win->qsteps);
+    }
+
+    free(fks);
+    return 0;
+}
+
+int test_long_free_kick_to_loose(void)
+{
+    // Last moves:
+    //   1 NW NW S + NE W E W S N NE
+    //   2 NW N SE + W SE SW SW
+    // 14 steps before we have a free kick with loose
+    struct bsf_free_kicks * restrict const fks = run_bsf(game_000050, ARRAY_LEN(game_000050) - 14);
+
+    if (fks->loose == NULL) {
+        test_fail("Loose path not detected in game 000050");
+    }
+
+    free(fks);
+    return 0;
+}
+
+int test_gen_complete_free_kicks_long(void)
+{
+    struct bsf_free_kicks * restrict const fks = run_bsf(debug_game_with_hang, ARRAY_LEN(debug_game_with_hang));
+
+    if (fks->qseries == 0) {
+        test_fail("No series generated for real hung game penalty situation");
+    }
+
+    free(fks);
     return 0;
 }
 
