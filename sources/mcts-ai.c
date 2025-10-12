@@ -252,6 +252,8 @@ struct bsf_free_kicks
     struct dlist used;
     struct bsf_node * root;
     struct bsf_serie * series;
+    struct bsf_serie * win;
+    struct bsf_serie * loose;
 };
 
 enum add_serie_status
@@ -296,10 +298,38 @@ enum add_serie_status add_serie(
     struct mcts_ai * const ai,
     struct bsf_free_kicks * restrict const me,
     struct bsf_node * restrict node,
+    int active,
     enum step step,
     int ball)
 {
-    struct bsf_serie * restrict const serie = me->series + me->qseries;
+    const int active1 = active == 1;
+    const int goal1 = ball == GOAL_1;
+    const int active2 = active == 2;
+    const int goal2 = ball == GOAL_2;
+
+    int win = (active1 && goal1) || (active2 && goal2);
+    int loose = (active1 && goal2) || (active2 && goal1);
+
+    struct bsf_serie * restrict serie = NULL;
+
+    if (win) {
+        if (me->win != NULL) {
+            return ADDED_OK;
+        }
+        serie = me->series + me->capacity + 1;
+    }
+
+    if (loose) {
+        if (me->loose != NULL) {
+            return ADDED_OK;
+        }
+        serie = me->series + me->capacity;
+    }
+
+    if (serie == NULL) {
+        serie = me->series + me->qseries;
+    }
+
     int depth = node->depth;
 
     serie->ball = ball;
@@ -320,7 +350,14 @@ enum add_serie_status add_serie(
         WARN(ai, BSF_NODE_NOT_FROM_ROOT, "node", node, "root", me->root);
     }
 
-    ++me->qseries;
+    if (win) {
+        me->win = serie;
+    } else if (loose) {
+        me->loose = serie;
+    } else {
+        ++me->qseries;
+    }
+
     return me->qseries >= me->capacity ? ADDED_LAST : ADDED_OK;
 }
 
@@ -357,8 +394,14 @@ void bsf_free_kicks(
             int ball = state_step(next, step);
 
             if (ball < 0 || !is_free_kick_situation(next)) {
-                enum add_serie_status status = add_serie(ai, me, parent, step, ball);
+                enum add_serie_status status = add_serie(ai, me, parent, prev->active, step, ball);
                 bsf_dealloc(me, child);
+
+                if (me->win) {
+                    /* Not interested more */
+                    return;
+                }
+
                 switch (status) {
                     case ADDED_LAST:
                         WARN(ai, BSF_SERIES_OVERFLOW, "qseries", me->qseries, "capacity", me->capacity);
@@ -411,7 +454,7 @@ struct bsf_free_kicks * create_bsf_free_kicks(
         capacity * sizeof(struct state),
         capacity * qpoints,
         capacity * sizeof(struct cycle_guard),
-        capacity * guard_capacity * sizeof(struct kick)
+        capacity * guard_capacity * sizeof(struct kick),
     };
 
     void * ptrs[8];
@@ -431,10 +474,12 @@ struct bsf_free_kicks * create_bsf_free_kicks(
     struct kick * restrict const kicks_base = ptrs[7];
 
     me->qseries = 0;
-    me->capacity = capacity;
+    me->capacity = capacity - 2;
     me->max_depth = max_depth;
     me->root = NULL;
     me->series = series;
+    me->win = NULL;
+    me->loose = NULL;
 
     dlist_init(&me->free);
     dlist_init(&me->waiting);
