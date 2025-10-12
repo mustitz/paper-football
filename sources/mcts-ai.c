@@ -140,10 +140,20 @@ struct hist_item
     int active;
 };
 
+union node_opts
+{
+    struct {
+        unsigned has_answers : 1;
+    } ;
+    uint32_t u32;
+};
+
 struct node
 {
     int32_t score;
     int32_t qgames;
+    uint32_t steps;
+    union node_opts opts;
     int32_t children[QSTEPS];
 };
 
@@ -1330,7 +1340,15 @@ static uint32_t simulate(
 
     for (;;) {
 
-        steps_t answers = state_get_steps(state);
+        steps_t answers;
+        if (node->opts.has_answers) {
+            answers = node->steps;
+        } else {
+            answers = state_get_steps(state);
+            node->steps = answers;
+            node->opts.has_answers = 1;
+        }
+
         if (answers == 0) {
             update_history(me, state->active != 1 ? +1 : -1);
             return qthink;
@@ -1461,6 +1479,8 @@ static enum step ai_go(
     }
 
     root->qgames = 1;
+    root->steps = 0;
+    root->opts.u32 = 0;
     uint32_t qthink = 0;
     for (;;) {
         const uint32_t delta_think = simulate(me, root);
