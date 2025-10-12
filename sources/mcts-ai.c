@@ -247,6 +247,8 @@ struct bsf_free_kicks
     int qseries;
     int capacity;
     int max_depth;
+    int max_alts;
+    int stats_sz;
     struct dlist free;
     struct dlist waiting;
     struct dlist used;
@@ -254,6 +256,7 @@ struct bsf_free_kicks
     struct bsf_serie * series;
     struct bsf_serie * win;
     struct bsf_serie * loose;
+    int * alts;
 };
 
 enum add_serie_status
@@ -302,6 +305,11 @@ enum add_serie_status add_serie(
     enum step step,
     int ball)
 {
+    int * restrict const ball_alts = ball >= 0 ? me->alts + ball : NULL;
+    if (ball_alts != NULL && *ball_alts >= me->max_alts) {
+        return ADDED_OK;
+    }
+
     const int active1 = active == 1;
     const int goal1 = ball == GOAL_1;
     const int active2 = active == 2;
@@ -358,6 +366,9 @@ enum add_serie_status add_serie(
         ++me->qseries;
     }
 
+    if (ball_alts != NULL) {
+        ++ *ball_alts;
+    }
     return me->qseries >= me->capacity ? ADDED_LAST : ADDED_OK;
 }
 
@@ -438,7 +449,8 @@ void bsf_free_kicks(
 struct bsf_free_kicks * create_bsf_free_kicks(
     const struct geometry * const geometry,
     int capacity,
-    int max_depth)
+    int max_depth,
+    int max_alts)
 {
     const uint32_t qpoints = geometry->qpoints;
     const uint32_t free_kick_len = geometry->free_kick_len;
@@ -446,7 +458,8 @@ struct bsf_free_kicks * create_bsf_free_kicks(
     const size_t guard_capacity = 4 + qpoints / free_kick_reduce;
 
     const int max_depth_aligned = (max_depth + 7) & ~7;
-    const size_t sizes[8] = {
+    const int stats_sz = qpoints * sizeof(int);
+    const size_t sizes[9] = {
         sizeof(struct bsf_free_kicks),
         capacity * sizeof(struct bsf_serie),
         capacity * max_depth_aligned * sizeof(enum step),
@@ -455,10 +468,11 @@ struct bsf_free_kicks * create_bsf_free_kicks(
         capacity * qpoints,
         capacity * sizeof(struct cycle_guard),
         capacity * guard_capacity * sizeof(struct kick),
+        stats_sz,
     };
 
-    void * ptrs[8];
-    void * data = multialloc(8, sizes, ptrs, 64);
+    void * ptrs[9];
+    void * data = multialloc(9, sizes, ptrs, 64);
 
     if (data == NULL) {
         return NULL;
@@ -472,14 +486,19 @@ struct bsf_free_kicks * create_bsf_free_kicks(
     uint8_t * restrict const lines_base = ptrs[5];
     struct cycle_guard * restrict const guards = ptrs[6];
     struct kick * restrict const kicks_base = ptrs[7];
+    int * restrict const alts = ptrs[8];
 
     me->qseries = 0;
     me->capacity = capacity - 2;
     me->max_depth = max_depth;
+    me->max_alts = max_alts;
+    me->stats_sz = stats_sz;
+
     me->root = NULL;
     me->series = series;
     me->win = NULL;
     me->loose = NULL;
+    me->alts = alts;
 
     dlist_init(&me->free);
     dlist_init(&me->waiting);
@@ -538,6 +557,7 @@ void bsf_gen(
     cycle_guard_copy(root->guard, guard);
     me->root = root;
 
+    memset(me->alts, 0, me->stats_sz);
     bsf_free_kicks(ai, me);
 }
 
