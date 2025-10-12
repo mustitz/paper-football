@@ -144,6 +144,7 @@ union node_opts
 {
     struct {
         unsigned has_answers : 1;
+        unsigned free_kick : 1;
     } ;
     uint32_t u32;
 };
@@ -1354,7 +1355,7 @@ static uint32_t simulate(
             return qthink;
         }
 
-        const int is_free_kick = is_free_kick_situation(state);
+        const int is_free_kick = node->opts.free_kick;
         const int multiple_ways = answers & (answers - 1);
         if (multiple_ways) {
             if (is_free_kick) {
@@ -1399,6 +1400,7 @@ static uint32_t simulate(
         }
 
         if (is_free_kick && state->active == old_active) {
+            node->opts.free_kick = 1;
             cycle_guard_push(cycle_guard, old_ball, state->ball);
         } else {
             cycle_guard_reset(cycle_guard);
@@ -1481,6 +1483,7 @@ static enum step ai_go(
     root->qgames = 1;
     root->steps = 0;
     root->opts.u32 = 0;
+    root->opts.free_kick = is_free_kick_situation(state);
     uint32_t qthink = 0;
     for (;;) {
         const uint32_t delta_think = simulate(me, root);
