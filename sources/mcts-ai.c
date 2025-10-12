@@ -21,6 +21,10 @@ enum warn_nums {
     WARN_STEPS_ARE_CYCLES,
     WARN_ACTIVE_OOR,
     WARN_INCONSISTERN_STEPS_PRIORITY,
+    WARN_BSF_ALLOC_FAILED,
+    WARN_BSF_SERIES_OVERFLOW,
+    WARN_BSF_NODE_PARENT_NULL,
+    WARN_BSF_NODE_NOT_FROM_ROOT,
     QWARNS
 };
 
@@ -29,6 +33,10 @@ const char * warn_messages[QWARNS] = {
     [WARN_STEPS_ARE_CYCLES] = "All steps are cycles!",
     [WARN_ACTIVE_OOR] = "state->active value is out of range",
     [WARN_INCONSISTERN_STEPS_PRIORITY] = "Inconsistent values for steps/priories",
+    [WARN_BSF_ALLOC_FAILED] = "BSF node allocation failed",
+    [WARN_BSF_SERIES_OVERFLOW] = "BSF series capacity exceeded",
+    [WARN_BSF_NODE_PARENT_NULL] = "BSF node parent is NULL before reaching root",
+    [WARN_BSF_NODE_NOT_FROM_ROOT] = "BSF serie path does not start from root",
     [0] = "???"
 };
 
@@ -215,6 +223,277 @@ static const struct warn * mcts_ai_get_warn(
     }
 
     return me->warns + index;
+}
+
+struct bsf_node
+{
+    struct dlist link;
+    struct bsf_node * parent;
+    struct state * state;
+    struct cycle_guard * guard;
+    enum step step;
+    int depth;
+};
+
+struct bsf_serie
+{
+    int ball;
+    int qsteps;
+    enum step * steps;
+};
+
+struct bsf_free_kicks
+{
+    int qseries;
+    int capacity;
+    int max_depth;
+    struct dlist free;
+    struct dlist waiting;
+    struct dlist used;
+    struct bsf_node * root;
+    struct bsf_serie * series;
+};
+
+enum add_serie_status
+{
+    ADDED_OK,
+    ADDED_LAST,
+    ADDED_FAILURE
+};
+
+static struct bsf_node * bsf_node(struct dlist * item)
+{
+    return ptr_move(item, -offsetof(struct bsf_node, link));
+}
+
+struct bsf_node * bsf_alloc(
+    struct bsf_free_kicks * restrict const me)
+{
+    if (is_dlist_empty(&me->free)) {
+        return NULL;
+    }
+    struct dlist * first = me->free.next;
+    dlist_remove(first);
+    return bsf_node(first);
+}
+
+void bsf_dealloc(
+    struct bsf_free_kicks * restrict const me,
+    struct bsf_node * restrict const node)
+{
+    dlist_insert_before(&node->link, &me->free);
+}
+
+void cycle_guard_copy(
+    struct cycle_guard * restrict const dst,
+    const struct cycle_guard * restrict const src)
+{
+    dst->qkicks = src->qkicks;
+    memcpy(dst->kicks, src->kicks, src->qkicks * sizeof(struct kick));
+}
+
+enum add_serie_status add_serie(
+    struct mcts_ai * const ai,
+    struct bsf_free_kicks * restrict const me,
+    struct bsf_node * restrict node,
+    enum step step,
+    int ball)
+{
+    struct bsf_serie * restrict const serie = me->series + me->qseries;
+    int depth = node->depth;
+
+    serie->ball = ball;
+    serie->qsteps = depth + 1;
+    serie->steps[depth] = step;
+
+    while (depth > 0) {
+        serie->steps[--depth] = node->step;
+        node = node->parent;
+
+        if (node == NULL) {
+            WARN(ai, BSF_NODE_PARENT_NULL, "depth", depth, "qsteps", serie->qsteps);
+            return ADDED_FAILURE;
+        }
+    } while (depth > 0);
+
+    if (node != me->root) {
+        WARN(ai, BSF_NODE_NOT_FROM_ROOT, "node", node, "root", me->root);
+    }
+
+    ++me->qseries;
+    return me->qseries >= me->capacity ? ADDED_LAST : ADDED_OK;
+}
+
+void bsf_free_kicks(
+    struct mcts_ai * const ai,
+    struct bsf_free_kicks * const me)
+{
+    const int max_depth = me->max_depth;
+
+    struct dlist * restrict const waiting = &me->waiting;
+    struct dlist * restrict const used = &me->used;
+
+    while (!is_dlist_empty(waiting)) {
+        struct dlist * first = waiting->next;
+        dlist_remove(first);
+        dlist_insert_after(first, used);
+
+        struct bsf_node * restrict const parent = bsf_node(first);
+        struct state * restrict const prev = parent->state;
+        const int depth = parent->depth;
+
+        steps_t steps = state_get_steps(prev);
+        while (steps) {
+            enum step step = extract_step(&steps);
+
+            struct bsf_node * restrict const child = bsf_alloc(me);
+            if (child == NULL) {
+                WARN(ai, BSF_ALLOC_FAILED, "depth", depth, "capacity", me->capacity);
+                return;
+            }
+
+            struct state * restrict const next = child->state;
+            state_copy(next, prev);
+            int ball = state_step(next, step);
+
+            if (ball < 0 || !is_free_kick_situation(next)) {
+                enum add_serie_status status = add_serie(ai, me, parent, step, ball);
+                bsf_dealloc(me, child);
+                switch (status) {
+                    case ADDED_LAST:
+                        WARN(ai, BSF_SERIES_OVERFLOW, "qseries", me->qseries, "capacity", me->capacity);
+                        return;
+                    case ADDED_OK:
+                    case ADDED_FAILURE:
+                        continue;
+                }
+            }
+
+            if (depth + 1 >= max_depth) {
+                bsf_dealloc(me, child);
+                continue;
+            }
+
+            struct cycle_guard * restrict const guard = parent->guard;
+            enum cycle_result status = cycle_guard_push(guard, prev->ball, ball);
+            if (status == CYCLE_FOUND) {
+                bsf_dealloc(me, child);
+                continue;
+            }
+
+            cycle_guard_copy(child->guard, guard);
+            cycle_guard_pop(guard);
+
+            child->step = step;
+            child->parent = parent;
+            child->depth = depth + 1;
+            dlist_insert_before(&child->link, waiting);
+        }
+    }
+}
+
+struct bsf_free_kicks * create_bsf_free_kicks(
+    const struct geometry * const geometry,
+    int capacity,
+    int max_depth)
+{
+    const uint32_t qpoints = geometry->qpoints;
+    const uint32_t free_kick_len = geometry->free_kick_len;
+    const uint32_t free_kick_reduce = (free_kick_len - 1) * (free_kick_len - 1);
+    const size_t guard_capacity = 4 + qpoints / free_kick_reduce;
+
+    const int max_depth_aligned = (max_depth + 7) & ~7;
+    const size_t sizes[8] = {
+        sizeof(struct bsf_free_kicks),
+        capacity * sizeof(struct bsf_serie),
+        capacity * max_depth_aligned * sizeof(enum step),
+        capacity * sizeof(struct bsf_node),
+        capacity * sizeof(struct state),
+        capacity * qpoints,
+        capacity * sizeof(struct cycle_guard),
+        capacity * guard_capacity * sizeof(struct kick)
+    };
+
+    void * ptrs[8];
+    void * data = multialloc(8, sizes, ptrs, 64);
+
+    if (data == NULL) {
+        return NULL;
+    }
+
+    struct bsf_free_kicks * restrict const me = data;
+    struct bsf_serie * restrict const series = ptrs[1];
+    enum step * restrict const steps_base = ptrs[2];
+    struct bsf_node * restrict const nodes = ptrs[3];
+    struct state * restrict const states = ptrs[4];
+    uint8_t * restrict const lines_base = ptrs[5];
+    struct cycle_guard * restrict const guards = ptrs[6];
+    struct kick * restrict const kicks_base = ptrs[7];
+
+    me->qseries = 0;
+    me->capacity = capacity;
+    me->max_depth = max_depth;
+    me->root = NULL;
+    me->series = series;
+
+    dlist_init(&me->free);
+    dlist_init(&me->waiting);
+    dlist_init(&me->used);
+
+    for (int i = 0; i < capacity; ++i) {
+        series[i].steps = steps_base + i * max_depth_aligned;
+    }
+
+    for (int i = 0; i < capacity; ++i) {
+        struct bsf_node * restrict const node = nodes + i;
+        struct state * restrict const state = states + i;
+        uint8_t * restrict const lines = lines_base + i * qpoints;
+        struct cycle_guard * restrict const guard = guards + i;
+        struct kick * restrict const kicks = kicks_base + i * guard_capacity;
+
+        init_state(state, geometry, lines);
+        node->state = state;
+
+        guard->capacity = guard_capacity;
+        guard->kicks = kicks;
+        node->guard = guard;
+
+        dlist_insert_before(&node->link, &me->free);
+    }
+
+    return me;
+}
+
+void bsf_gen(
+    struct mcts_ai * const ai,
+    struct bsf_free_kicks * const me,
+    const struct state * const state,
+    const struct cycle_guard * const guard)
+{
+    struct dlist * restrict const free = &me->free;
+    struct dlist * restrict const waiting = &me->waiting;
+    struct dlist * restrict const used = &me->used;
+
+    dlist_move_all(free, waiting);
+    dlist_move_all(free, used);
+    me->qseries = 0;
+
+    struct bsf_node * root = bsf_alloc(me);
+    if (root == NULL) {
+        WARN(ai, BSF_ALLOC_FAILED, "depth", 0, "capacity", me->capacity);
+        return;
+    }
+
+    dlist_insert_after(&root->link, waiting);
+
+    root->parent = NULL;
+    root->step = INVALID_STEP;
+    root->depth = 0;
+    state_copy(root->state, state);
+    cycle_guard_copy(root->guard, guard);
+    me->root = root;
+
+    bsf_free_kicks(ai, me);
 }
 
 static const uint32_t MIN_CACHE_SZ = (16 * sizeof(struct node));
