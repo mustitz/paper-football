@@ -5,6 +5,7 @@
 #include <time.h>
 
 #define ERROR_BUF_SZ   256
+#define MAX_FREE_KICK_SERIE       10
 
 #define QPARAMS   4
 
@@ -103,13 +104,53 @@ void cycle_guard_pop(struct cycle_guard * restrict me) {
     me->qkicks--;
 }
 
+struct preparation
+{
+    int qpreps;
+    int current;
+    enum step preps[MAX_FREE_KICK_SERIE];
+};
+
+static inline void preparation_reset(
+    struct preparation * restrict const me)
+{
+    me->qpreps = 0;
+}
+
+static inline enum step preparation_peek(
+    struct preparation * restrict const me)
+{
+    const int qpreps = me->qpreps;
+    if (qpreps == 0) {
+        return INVALID_STEP;
+    }
+
+    return me->preps[me->current];
+}
+
+static inline enum step preparation_pop(
+    struct preparation * restrict const me)
+{
+    const int qpreps = me->qpreps;
+    if (qpreps == 0) {
+        return INVALID_STEP;
+    }
+
+    int current = me->current;
+    enum step result = me->preps[current++];
+    me->current = current < qpreps ? current : 0;
+    return result;
+}
+
 struct mcts_ai
 {
     struct state * state;
     struct state * backup;
+    struct bsf_free_kicks * bsf;
     char * error_buf;
     struct ai_param params[QPARAMS+1];
     struct step_stat stats[QSTEPS];
+    struct preparation prep;
 
     uint32_t cache;
     uint32_t qthink;
@@ -140,11 +181,20 @@ struct hist_item
     int active;
 };
 
+#define QANSWERS_BITS 8
+#define QSTEP_BITS 8
+
 union node_opts
 {
     struct {
+        unsigned count : QANSWERS_BITS;
+        unsigned qsteps : QSTEP_BITS;
+        unsigned steps : QSTEPS;
         unsigned has_answers : 1;
         unsigned free_kick : 1;
+        unsigned ball_move : 1;
+        unsigned path : 1;
+        unsigned win : 1;
     } ;
     uint32_t u32;
 };
@@ -153,9 +203,16 @@ struct node
 {
     int32_t score;
     int32_t qgames;
-    uint32_t steps;
+    uint32_t answer;
     union node_opts opts;
     int32_t children[QSTEPS];
+};
+
+#define EXNODE_CHILDREN (QSTEPS + 4)
+
+struct exnode
+{
+    int32_t children[EXNODE_CHILDREN];
 };
 
 static void init_magic_steps(void);
@@ -581,7 +638,7 @@ void bsf_gen(
     root->step = INVALID_STEP;
     root->depth = 0;
     state_copy(root->state, state);
-    cycle_guard_copy(root->guard, guard);
+    cycle_guard_reset(root->guard);
     me->root = root;
 
     memset(me->alts, 0, me->stats_sz);
@@ -714,12 +771,18 @@ static void free_ai(struct mcts_ai * restrict const me)
     }
     free_state(me->state);
     free_state(me->backup);
+    free(me->bsf);
     free(me);
 }
 
 struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
 {
     init_magic_steps();
+
+    struct bsf_free_kicks * bsf = create_bsf_free_kicks(geometry, 1 << QANSWERS_BITS, MAX_FREE_KICK_SERIE, 8, 8);
+    if (bsf == NULL) {
+        return NULL;
+    }
 
     const uint32_t qpoints = geometry->qpoints;
     const uint32_t free_kick_len = geometry->free_kick_len;
@@ -740,6 +803,7 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     void * data = multialloc(8, sizes, ptrs, 64);
 
     if (data == NULL) {
+        free(bsf);
         return NULL;
     }
 
@@ -755,6 +819,7 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     me->state = state;
     me->backup = backup;
     me->error_buf = error_buf;
+    me->bsf = bsf;
 
     me->nodes = NULL;
     reset_cache(me);
@@ -763,6 +828,7 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     me->hist_last = NULL;
     me->hist_ptr = NULL;
     me->max_hist_len = 0;
+    preparation_reset(&me->prep);
 
     me->cycle_guard.capacity = cycle_guard_capacity;
     me->cycle_guard.kicks = cycle_guard_kicks;
@@ -947,6 +1013,12 @@ int mcts_ai_do_step(
     ai->error = NULL;
     struct mcts_ai * restrict const me = ai->data;
 
+    struct preparation * restrict const prep = &me->prep;
+    enum step prepared = preparation_pop(prep);
+    if (prepared != step) {
+        preparation_reset(prep);
+    }
+
     const int next = state_step_proxy(me, step);
 
     if (next == NO_WAY) {
@@ -1026,6 +1098,8 @@ int mcts_ai_undo_steps(
     if (what != CHANGE_PASS && what != CHANGE_FREE_KICK) {
         return EINVAL;
     }
+
+    preparation_reset(&me->prep);
 
     --qsteps;
 
@@ -1280,30 +1354,89 @@ static void add_history(
     ++me->hist_ptr;
 }
 
-static enum step select_step(
+static inline int extra_nodes(int qanswers)
+{
+    return (qanswers - QSTEPS + EXNODE_CHILDREN - 2) / (EXNODE_CHILDREN - 1);
+}
+
+static inline enum step best_step(
     const struct mcts_ai * const me,
     const struct node * const node,
-    steps_t steps)
+    int answer)
 {
-    int qbest = 0;
-    enum step best_steps[QSTEPS];
-    float best_weight = -1.0e+10f;
+    return magic_steps[node->answer][answer];
+}
 
-    const int multiple_ways = steps & (steps - 1);
-    if (!multiple_ways) {
-        const enum step choice = first_step(steps);
-        return choice;
+static inline struct node * get_answer(
+    const struct mcts_ai * const me,
+    const struct node * const node,
+    int answer)
+{
+    if (answer < 0) {
+        /* WARN */
+        return NULL;
     }
+
+    if (!node->opts.free_kick) {
+        if (answer >= QSTEPS) {
+            /* WARN */
+            return NULL;
+        }
+        return me->nodes + node->children[answer];
+    }
+
+    const int qanswers = node->opts.count;
+    if (answer >= qanswers) {
+        /* WARN */
+        return NULL;
+    }
+
+    const int extra = extra_nodes(qanswers);
+    const int q0 = QSTEPS - extra;
+    if (answer < q0) {
+        return me->nodes + node->children[answer];
+    }
+
+    const int block = (answer - q0) / EXNODE_CHILDREN;
+    const int offset = (answer - q0) % EXNODE_CHILDREN;
+    const int32_t eindex = node->children[q0 + block];
+    const struct node * const enode = me->nodes + eindex;
+    return me->nodes + enode->children[offset];
+}
+
+int select_answer(
+    const struct mcts_ai * const me,
+    const struct node * const node,
+    int qanswers)
+{
+    /* Only one answer - return it */
+    if (qanswers == 1) {
+        return 0;
+    }
+
+    int qbest = 0;
+    int best_answers[QSTEPS * EXNODE_CHILDREN];
+    float best_weight = -1.0e+10f;
 
     const float total = node->qgames;
     const float log_total = log(total);
-    while (steps != 0) {
-        const enum step step = extract_step(&steps);
-        const struct node * const child = me->nodes + node->children[step];
+
+    for (int answer = 0; answer < qanswers; ++answer) {
+        const struct node * const child = get_answer(me, node, answer);
+        if (child == NULL) {
+            continue;
+        }
+
         const float score = child->score;
         const float qgames = child->qgames;
+
+        if (qgames == 0) {
+            /* Unexplored node - prioritize it */
+            return answer;
+        }
+
         const float ev = score / qgames;
-        const float investigation = sqrt(log_total/qgames);
+        const float investigation = sqrt(log_total / qgames);
         const float weight = ev + me->C * investigation;
 
         if (weight >= best_weight) {
@@ -1311,21 +1444,403 @@ static enum step select_step(
                 qbest = 0;
                 best_weight = weight;
             }
-            best_steps[qbest++] = step;
+            best_answers[qbest++] = answer;
         }
     }
 
+    if (qbest == 0) {
+        /* No valid answers found - return first */
+        return 0;
+    }
+
     const int index = qbest == 1 ? 0 : rand() % qbest;
-    const enum step choice = best_steps[index];
-    return choice;
+    return best_answers[index];
+}
+
+static int pack_serie(
+    struct node * restrict const node,
+    const struct bsf_serie * serie)
+{
+    const int qsteps = serie->qsteps;
+    const enum step * const steps = serie->steps;
+
+    if (qsteps > MAX_FREE_KICK_SERIE) {
+        /* WARN */
+        return 1;
+    }
+
+    uint32_t answer1 = 0;
+    uint32_t answer2 = 0;
+
+    int min1 = MIN(qsteps, 10);
+    int min2 = MIN(qsteps, 20);
+
+    for (int i=0; i<min1; ++i) {
+        answer1 = (answer1 << 3) | steps[i];
+    }
+
+    for (int i=10; i<min2; ++i) {
+        answer2 = (answer2 << 3) | steps[i];
+    }
+
+    node->answer = answer1;
+    node->children[QSTEPS-1] = answer2;
+    node->opts.qsteps = qsteps;
+    return 0;
+}
+
+static void unpack_serie(
+    const struct node * restrict const node,
+    enum step * restrict const steps)
+{
+    const int qsteps = node->opts.qsteps;
+    uint32_t answers = node->children[QSTEPS-1];
+    int min = MIN(qsteps, MAX_FREE_KICK_SERIE);
+
+    /* Unpack first 10 steps (in reverse order) */
+    for (int i = min - 1; i >= 0; --i) {
+        steps[i] = answers & 7;
+        answers >>= 3;
+    }
+}
+
+static void apply_answer(
+    const struct mcts_ai * const me,
+    struct state * restrict const state,
+    const struct node * const node,
+    int answer)
+{
+    /* For regular steps */
+    if (!node->opts.free_kick) {
+        steps_t steps = node->answer;
+        enum step step = magic_steps[steps][answer];
+        state_step(state, step);
+        return;
+    }
+
+    /* For free_kick: get child node */
+    const struct node * const child = get_answer(me, node, answer);
+    if (child == NULL) {
+        return;
+    }
+
+    /* For ball_move - nothing to apply */
+    if (child->opts.ball_move) {
+        return;
+    }
+
+    /* For path - unpack and apply serie */
+    if (child->opts.path) {
+        const int qsteps = child->opts.qsteps;
+        enum step steps[MAX_FREE_KICK_SERIE];
+        unpack_serie(child, steps);
+
+        for (int i = 0; i < qsteps; ++i) {
+            state_step(state, steps[i]);
+        }
+    }
+}
+
+static int alloc_answers(
+    struct mcts_ai * const me,
+    struct node * restrict const node,
+    int qanswers)
+{
+    const int max_answers = QSTEPS * EXNODE_CHILDREN;
+    if (qanswers > max_answers) {
+        /* WARN */
+        return 1;
+    }
+
+    int extra = extra_nodes(qanswers);
+    if (extra < 0 || extra > EXNODE_CHILDREN) {
+        /* WARN */
+        return 1;
+    }
+
+    for (int i=0; i<extra; ++i) {
+        struct node * enode = alloc_node(me);
+        if (enode == NULL) {
+            return 1;
+        }
+
+        node->children[QSTEPS - extra + i] = enode - me->nodes;
+    }
+
+    int q0 = QSTEPS - extra;
+    int32_t * restrict children = node->children;
+    int current_block = 0;
+    int magic = EXNODE_CHILDREN - q0;
+    for (int i=0; i<qanswers; ++i) {
+        int block = magic / EXNODE_CHILDREN;
+        int offset = magic % EXNODE_CHILDREN;
+        ++magic;
+
+        if (block != current_block) {
+            current_block = block;
+            int32_t eindex = node->children[q0 + block];
+            struct node * enode = me->nodes + eindex;
+            children = enode->children;
+        }
+
+        struct node * child = alloc_node(me);
+        if (child == NULL) {
+            return 1;
+        }
+
+        int32_t ichild = child - me->nodes;
+        children[offset] = ichild;
+    }
+
+    node->opts.free_kick = 1;
+    node->opts.count = qanswers;
+    return 0;
+}
+
+struct ball_move
+{
+    int ball;
+    uint32_t distance;
+    const struct bsf_serie ** series;
+    int count;
+};
+
+static int compare_ball_moves(
+    const void * const ptr_a,
+    const void * const ptr_b)
+{
+    const struct ball_move * const a = ptr_a;
+    const struct ball_move * const b = ptr_b;
+
+    /* Sort by distance (closer to goal first) */
+    if (a->distance < b->distance) return -1;
+    if (a->distance > b->distance) return +1;
+    return 0;
+}
+
+static int best_answer(
+    const struct mcts_ai * const me,
+    const struct node * const node)
+{
+    const int qanswers = node->opts.count;
+    int best_answers[qanswers];
+
+    int qbest = 0;
+    int32_t best_qgames = -2147483648;
+
+    for (int i=0; i<qanswers; ++i) {
+        const struct node * const child = get_answer(me, node, i);
+        int32_t qgames = child->qgames;
+
+        if (qgames >= best_qgames) {
+            if (qgames > best_qgames) {
+                qbest = 0;
+                best_qgames = qgames;
+            }
+            best_answers[qbest++] = i;
+        }
+    }
+
+    if (qbest == 0) {
+        /* No valid answers found - return first */
+        /* WARN */
+        return 0;
+    }
+
+    const int index = qbest == 1 ? 0 : rand() % qbest;
+    return best_answers[index];
+}
+
+static void fetch_free_kick(
+    struct mcts_ai * restrict const me,
+    const struct node * const node)
+{
+    int answer = best_answer(me, node);
+    const struct node * const best = get_answer(me, node, answer);
+
+    struct preparation * restrict const prep = &me->prep;
+    unpack_serie(best, prep->preps);
+    prep->qpreps = node->opts.count;
+    prep->current = 0;
+}
+
+static struct node * bsf_ball_move(
+    struct mcts_ai * const me,
+    struct node * restrict const node,
+    const struct ball_move * const bm,
+    int index)
+{
+    const int ball = bm->ball;
+    const int count = bm->count;
+    const struct bsf_serie * const * const sorted = bm->series;
+
+    const int max_count = 1 << QANSWERS_BITS;
+    if (count < 0 || count >= max_count) {
+        /* WARN */
+        return NULL;
+    }
+
+    struct node * restrict const mnode = get_answer(me, node, index);
+    if (mnode == NULL) {
+        /* WARN */
+        return NULL;
+    }
+
+    mnode->opts.ball_move = 1;
+    mnode->answer = ball;
+
+    int status = alloc_answers(me, mnode, count);
+    if (status != 0) {
+        return NULL;
+    }
+
+    for (int i=0; i<count; ++i) {
+        struct node * restrict const pnode = get_answer(me, mnode, i);
+        if (pnode == NULL) {
+            /* WARN */
+            return NULL;
+        }
+
+        pnode->opts.path = 1;
+        pack_serie(pnode, sorted[i]);
+    }
+
+    return node;
+}
+
+static int compare_series(
+    const void * const ptr_a,
+    const void * const ptr_b)
+{
+    const struct bsf_serie * const * const a = ptr_a;
+    const struct bsf_serie * const * const b = ptr_b;
+
+    /* Sort by ball (to group series with same destination) */
+    return (*a)->ball - (*b)->ball;
+}
+
+static int calc_qanswers(
+    struct mcts_ai * restrict const me,
+    struct node * restrict const node,
+    struct state * restrict const state)
+{
+    if (node->opts.has_answers) {
+        return 0;
+    }
+
+    if (!node->opts.free_kick) {
+        steps_t steps = state_get_steps(state);
+        node->answer = steps;
+        node->opts.has_answers = 1;
+        node->opts.count = step_count(steps);
+        return 0;
+    }
+
+    struct bsf_free_kicks * bsf = me->bsf;
+    bsf_gen(me, bsf, state, &me->cycle_guard);
+
+    if (bsf->win != NULL) {
+        struct node * restrict const win_node = alloc_node(me);
+        if (win_node == NULL) {
+            return ENOMEM;
+        }
+
+        win_node->score = 2;
+        win_node->qgames = 1;
+        pack_serie(win_node, bsf->win);
+        win_node->opts.free_kick = 1;
+        win_node->opts.win = 1;
+        win_node->opts.count = 0;
+
+        node->children[0] = win_node - me->nodes;
+        node->opts.count = 1;
+        return 0;
+    }
+
+    const int qseries = bsf->win != NULL ? 1 : bsf->qseries;
+    if (qseries == 0) {
+        node->opts.has_answers = 1;
+        node->opts.count = 0;
+        return 0;
+    }
+
+    const struct bsf_serie * sorted[qseries];
+    for (int i=0; i<qseries; ++i) {
+        sorted[i] = bsf->series + i;
+    }
+    qsort(sorted, qseries, sizeof(struct bsf_serie *), compare_series);
+
+    /* First pass: calculate count */
+    int qballs = 1;
+    int ball = sorted[0]->ball;
+    for (int i=1; i<qseries; ++i) {
+        int current_ball = sorted[i]->ball;
+        if (current_ball == ball) {
+            continue;
+        }
+
+        ++qballs;
+        ball = current_ball;
+    }
+
+    const int status = alloc_answers(me, node, qballs);
+    if (status != 0) {
+        return status;
+    }
+
+    const uint32_t * const dists = state->active == 1
+        ? state->geometry->dist_goal1
+        : state->geometry->dist_goal2;
+
+    struct ball_move ball_moves[qballs];
+
+    /* Second pass: fill ball_moves */
+    int index = 0;
+    int from = 0;
+    ball = sorted[0]->ball;
+    for (int i=1; i<qseries; ++i) {
+        int current_ball = sorted[i]->ball;
+        if (current_ball == ball) {
+            continue;
+        }
+
+        ball_moves[index].ball = ball;
+        ball_moves[index].distance = dists[ball];
+        ball_moves[index].series = sorted + from;
+        ball_moves[index].count = i - from;
+
+        ++index;
+        from = i;
+        ball = current_ball;
+    }
+
+    ball_moves[index].ball = ball;
+    ball_moves[index].distance = dists[ball];
+    ball_moves[index].series = sorted + from;
+    ball_moves[index].count = qseries - from;
+
+    /* Sort ball_moves by distance to goal */
+    qsort(ball_moves, qballs, sizeof(struct ball_move), compare_ball_moves);
+
+    /* Create nodes in sorted order */
+    for (int i=0; i<qballs; ++i) {
+        struct node * restrict const child = bsf_ball_move(me, node, ball_moves + i, i);
+        if (child == NULL) {
+            return -1;
+        }
+    }
+
+    node->opts.has_answers = 1;
+    node->opts.count = qballs;
+    return qballs;
 }
 
 static uint32_t simulate(
     struct mcts_ai * restrict const me,
     struct node * restrict node)
 {
+    const struct node * const zero = me->nodes;
     struct state * restrict const state = me->backup;
-    struct cycle_guard * restrict const cycle_guard = &me->backup_cycle_guard;
     save_state(me);
 
     if (state->ball == GOAL_1) {
@@ -1340,50 +1855,31 @@ static uint32_t simulate(
     me->hist_ptr = me->hist;
 
     for (;;) {
-
-        steps_t answers;
-        if (node->opts.has_answers) {
-            answers = node->steps;
-        } else {
-            answers = state_get_steps(state);
-            node->steps = answers;
-            node->opts.has_answers = 1;
+        int status = calc_qanswers(me, node, state);
+        if (status != 0) {
+            return 0;
         }
 
-        if (answers == 0) {
+        int qanswers = node->opts.count;
+        if (qanswers == 0) {
             update_history(me, state->active != 1 ? +1 : -1);
             return qthink;
         }
 
-        const int is_free_kick = node->opts.free_kick;
-        const int multiple_ways = answers & (answers - 1);
-        if (multiple_ways) {
-            if (is_free_kick) {
-                answers = forbid_cycles(me, cycle_guard, state, answers);
-            }
-        }
-
-        const enum step step = select_step(me, node, answers);
+        int answer = select_answer(me, node, qanswers);
         ++qthink;
 
-        uint32_t ichild = node->children[step];
-        if (ichild == 0) {
-            struct node * restrict const child = alloc_node(me);
+        struct node * restrict child = get_answer(me, node, answer);
+        if (child == zero) {
+            child = alloc_node(me);
             if (child == NULL) {
                 return 0;
             }
-            node->children[step] = child - me->nodes;
-            node = child;
-        } else {
-            node = me->nodes + ichild;
+            node->children[answer] = child - me->nodes;
         }
 
-        add_history(me, node, state->active);
-
-        int old_ball = state->ball;
-        int old_active = state->active;
-        state_step(state, step);
-        const int status = state_status(state);
+        apply_answer(me, state, node, answer);
+        status = state_status(state);
 
         if (status == WIN_1) {
             update_history(me, +1);
@@ -1395,16 +1891,8 @@ static uint32_t simulate(
             return qthink;
         }
 
-        if (ichild == 0) {
-            break;
-        }
-
-        if (is_free_kick && state->active == old_active) {
-            node->opts.free_kick = 1;
-            cycle_guard_push(cycle_guard, old_ball, state->ball);
-        } else {
-            cycle_guard_reset(cycle_guard);
-        }
+        node = child;
+        add_history(me, node, state->active);
     }
 
     const int32_t score = rollout(state, me->max_depth, &qthink);
@@ -1440,7 +1928,17 @@ static enum step ai_go(
         explanation->cache.bad_alloc = 0;
     }
 
+    struct preparation * restrict const prep = &me->prep;
+    enum step prepared = preparation_peek(prep);
+    if (prepared != INVALID_STEP) {
+        return prepared;
+    }
+
     struct state * restrict state = me->state;
+
+    if (is_free_kick_situation(state)) {
+        debug_trap();
+    }
 
     steps_t steps = state_get_steps(state);
     if (steps == 0) {
@@ -1481,7 +1979,7 @@ static enum step ai_go(
     }
 
     root->qgames = 1;
-    root->steps = 0;
+    root->answer = 0;
     root->opts.u32 = 0;
     root->opts.free_kick = is_free_kick_situation(state);
     uint32_t qthink = 0;
@@ -1499,30 +1997,21 @@ static enum step ai_go(
         }
     }
 
-    int qbest = 0;
-    int32_t best_qgames = -2147483648;
-    enum step best_steps[QSTEPS];
-
-    for (enum step step=0; step<QSTEPS; ++step) {
-        const uint32_t ichild = root->children[step];
-        if (ichild == 0) {
-            continue;
-        }
-
-        const struct node * const child = me->nodes + ichild;
-        int32_t qgames = child->qgames;
-
-        if (qgames >= best_qgames) {
-            if (qgames > best_qgames) {
-                qbest = 0;
-                best_qgames = qgames;
-            }
-            best_steps[qbest++] = step;
-        }
+    const int status = calc_qanswers(me, root, state);
+    if (status != 0) {
+        return INVALID_STEP;
     }
 
-    const int index = qbest == 1 ? 0 : rand() % qbest;
-    enum step result = best_steps[index];
+    int answer = best_answer(me, root);
+
+    if (root->opts.free_kick) {
+        const struct node * const node = get_answer(me, root, answer);
+        fetch_free_kick(me, node);
+        /* TODO explanation */
+        return preparation_peek(prep);
+    }
+
+    enum step result = best_step(me, root, answer);
 
     if (explanation) {
         double finish = clock();
@@ -1775,10 +2264,10 @@ int test_ucb_formula(void)
     node.qgames = 10;
     node.score = 0;
 
-    node.children[NORTH] = 1; /*       1.55985508 */
-    node.children[EAST]  = 2; /* BEST  1.56219899 */
-    node.children[SOUTH] = 3; /*       1.55005966 */
-    node.children[WEST]  = 4; /*       1.53394851 */
+    node.children[0] = 1; /* answer 0 (NORTH) - weight 1.55985508 */
+    node.children[1] = 2; /* answer 1 (EAST)  - weight 1.56219899 BEST */
+    node.children[2] = 3; /* answer 2 (SOUTH) - weight 1.55005966 */
+    node.children[3] = 4; /* answer 3 (WEST)  - weight 1.53394851 */
 
     me->C = 1.4;
 
@@ -1792,11 +2281,11 @@ int test_ucb_formula(void)
     me->nodes[3].score = 3;
     me->nodes[4].score = 4;
 
-    steps_t steps = (1 << NORTH) | (1 << EAST) | (1 << SOUTH) | (1 << WEST);
-    const enum step choice = select_step(me, &node, steps);
+    const int qanswers = 4;
+    const int answer = select_answer(me, &node, qanswers);
 
-    if (choice != EAST) {
-        test_fail("Unexpected choice %d, expected EAST (%d).", choice, EAST);
+    if (answer != 1) {
+        test_fail("Unexpected answer %d, expected 1 (EAST).", answer);
     }
 
     struct node * restrict const root = alloc_node(me);
@@ -1816,10 +2305,10 @@ int test_ucb_formula(void)
     }
 
     steps_t visited = 0;
-    for (enum step step=0; step<QSTEPS; ++step) {
-        const enum step choice = select_step(me, root, 0xFF);
-        visited |= 1 << choice;
-        struct node * restrict const child = me->nodes + root->children[choice];
+    for (int i=0; i<QSTEPS; ++i) {
+        const int chosen = select_answer(me, root, QSTEPS);
+        visited |= 1 << chosen;
+        struct node * restrict const child = me->nodes + root->children[chosen];
         child->qgames = 1;
         child->score = (rand() % 3) - 1;
         ++root->qgames;
@@ -1834,9 +2323,7 @@ int test_ucb_formula(void)
     return 0;
 }
 
-#define QSIMULATIONS  1000
-
-int test_simulation(void)
+int run_simulation(enum step * steps, int qsteps, int qsimulations)
 {
     struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
@@ -1847,10 +2334,16 @@ int test_simulation(void)
     struct ai storage;
     struct ai * restrict const ai = &storage;
     init_mcts_ai(ai, geometry);
-    const uint32_t cache = 2 * QSIMULATIONS * sizeof(struct node);
+    const uint32_t cache = 128 * qsimulations * sizeof(struct node);
     ai->set_param(ai, "cache", &cache);
 
     struct mcts_ai * restrict const me = ai->data;
+
+    int status = ai->do_steps(ai, qsteps, steps);
+    if (status != 0) {
+        test_fail("Failed to apply moves, status %d, error: %s", status, ai->error);
+    }
+
     reset_cache(me);
 
     struct node * restrict const zero = alloc_node(me);
@@ -1866,18 +2359,23 @@ int test_simulation(void)
     }
 
     root->qgames = 1;
-    for (int i=0; i<QSIMULATIONS; ++i) {
+    for (int i=0; i<qsimulations; ++i) {
         simulate(me, root);
         ++root->qgames;
     }
 
-    if (root->qgames != QSIMULATIONS + 1) {
-        test_fail("root->qgames = %u, but %u expected.", root->qgames, QSIMULATIONS);
+    if (root->qgames != qsimulations + 1) {
+        test_fail("root->qgames = %u, but %u expected.", root->qgames, qsimulations);
     }
 
     ai->free(ai);
     destroy_geometry(geometry);
     return 0;
+}
+
+int test_simulation(void)
+{
+    return run_simulation(NULL, 0, 1000);
 }
 
 int test_mcts_ai_unstep(void)
@@ -1918,7 +2416,14 @@ int test_mcts_ai_unstep(void)
                 qsteps, warn->msg, warn->file_name, warn->line_num);
         }
 
-        ai->do_step(ai, step);
+        int old_active = state->active;
+        status = ai->do_step(ai, step);
+        if (status != 0) {
+            test_fail("ai->go step %s (%d) is not accepted by ai->do_step, qsteps = %d\n", step_names[step], step, qsteps);
+        }
+
+        int new_active = state->active;
+        info("do_step %s, active %d -> %d\n", step_names[step], old_active, new_active);
         ++qsteps;
     }
 
@@ -2010,21 +2515,6 @@ int test_ai_no_cycles(void)
     struct ai * restrict const ai = &storage;
     init_mcts_ai(ai, geometry);
 
-    enum step game_002255[] = {
-        NORTH, NORTH_WEST, NORTH_EAST,
-        SOUTH_EAST, SOUTH, NORTH_WEST, SOUTH,
-        NORTH_WEST, NORTH_WEST, EAST,
-        NORTH_WEST, NORTH_EAST, SOUTH, SOUTH,
-        NORTH_WEST, NORTH_WEST, NORTH_EAST,
-        WEST, SOUTH_WEST, SOUTH_EAST,
-        WEST, NORTH_WEST, NORTH_EAST,
-        WEST, SOUTH_WEST, SOUTH_EAST,
-        WEST, NORTH_WEST, NORTH_EAST,
-        NORTH_WEST, WEST, SOUTH_EAST,
-        WEST, WEST, NORTH_WEST,
-        NORTH_EAST, EAST, SOUTH_WEST, SOUTH,
-    };
-
     int status = ai->do_steps(ai, ARRAY_LEN(game_002255), game_002255);
     if (status != 0) {
         test_fail("Failed to apply moves, status %d, error: %s", status, ai->error);
@@ -2086,7 +2576,7 @@ int test_ai_no_cycles(void)
 struct bsf_free_kicks * run_bsf(const enum step * const moves, int qmoves)
 {
     const int MAX_DEPTH = 100;
-    const int MAX_SERIES = 200;
+    const int MAX_FREE_KICKS = 200;
 
     struct geometry * restrict const geometry = create_std_geometry(21, 31, 6, 5);
     if (geometry == NULL) {
@@ -2108,7 +2598,7 @@ struct bsf_free_kicks * run_bsf(const enum step * const moves, int qmoves)
         test_fail("Expected penalty situation after moves, but got normal situation");
     }
 
-    struct bsf_free_kicks * fks = create_bsf_free_kicks(geometry, MAX_SERIES, MAX_DEPTH, 8, 8);
+    struct bsf_free_kicks * fks = create_bsf_free_kicks(geometry, MAX_FREE_KICKS, MAX_DEPTH, 8, 8);
     if (fks == NULL) {
         test_fail("create_bsf_free_kicks failed");
     }
@@ -2183,13 +2673,7 @@ struct bsf_free_kicks * run_bsf(const enum step * const moves, int qmoves)
 
 int test_gen_complete_free_kicks(void)
 {
-    // Create simple penalty situation: 1 NW NW NE, 2 SE S NW
-    enum step test1[] = {
-        NORTH_WEST, NORTH_WEST, NORTH_EAST,
-        SOUTH_EAST, SOUTH, NORTH_WEST
-    };
-
-    struct bsf_free_kicks * restrict const fks = run_bsf(test1, ARRAY_LEN(test1));
+    struct bsf_free_kicks * restrict const fks = run_bsf(fastest_free_kick1, ARRAY_LEN(fastest_free_kick1));
     if (fks->qseries != 8) {
         test_fail("bsf_gen returned %d series, expected 8", fks->qseries);
     }
@@ -2267,6 +2751,11 @@ int test_gen_complete_free_kicks_long(void)
 
     free(fks);
     return 0;
+}
+
+int debug_simulate_free_kick(void)
+{
+    return run_simulation(fastest_free_kick1, ARRAY_LEN(fastest_free_kick1), 1);
 }
 
 #endif

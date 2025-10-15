@@ -1,4 +1,5 @@
 void test_fail(const char * const fmt, ...) __attribute__ ((format (printf, 1, 2)));
+void info(const char * const fmt, ...) __attribute__ ((format (printf, 1, 2)));
 
 int test_multialloc(void);
 int test_parser(void);
@@ -23,3 +24,5 @@ int test_gen_complete_free_kicks_win(void);
 int test_long_free_kick_to_win(void);
 int test_long_free_kick_to_loose(void);
 int test_gen_complete_free_kicks_long(void);
+
+int debug_simulate_free_kick(void);

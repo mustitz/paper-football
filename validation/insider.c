@@ -8,6 +8,7 @@
 #include <string.h>
 
 const char * test_name = "";
+int opt_verbose = 0;
 
 void fail(void)
 {
@@ -23,6 +24,14 @@ void test_fail(const char * const fmt, ...)
     vfprintf(stderr, fmt, args);
     va_end(args);
     fail();
+}
+
+void info(const char * const fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    va_end(args);
 }
 
 
@@ -71,6 +80,8 @@ const struct test_item tests[] = {
     { "long-free-kick-to-win", &test_long_free_kick_to_win},
     { "long-free-kick-to-loose", &test_long_free_kick_to_loose},
     { "gen-complete-free-kicks-long", &test_gen_complete_free_kicks_long},
+
+    { "debug-simulate-free-kick", &debug_simulate_free_kick},
     { NULL, NULL }
 };
 
@@ -125,6 +136,10 @@ int main(const int argc, const char * const argv[])
     }
 
     for (size_t i=1; i<argc; ++i) {
+        if (strcmp(argv[i], "-v") == 0) {
+            opt_verbose = 1;
+            continue;
+        }
         run_test(argv[i]);
     }
 

@@ -1,5 +1,16 @@
 /* Test game database for tests */
 
+enum step fastest_free_kick1[] = {
+    NORTH, NORTH, NORTH,
+    EAST, EAST, EAST,
+    SOUTH_WEST, SOUTH_WEST, NORTH,
+};
+
+enum step fastest_free_kick2[] = {
+    NORTH_WEST, NORTH_WEST, NORTH_EAST,
+    SOUTH_EAST, SOUTH, NORTH_WEST,
+};
+
 enum step game_000050[] = {
     NORTH, NORTH_EAST, NORTH_WEST,
     SOUTH_WEST, SOUTH, NORTH_EAST, SOUTH,
