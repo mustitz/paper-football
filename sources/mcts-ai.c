@@ -1,8 +1,37 @@
 #include "paper-football.h"
 
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
+
+struct mcts_ai;
+struct node;
+struct bsf_serie;
+struct ball_move;
+
+#if ENABLE_MCTS_LOGS
+#define MCTS_LOG_FUNC static
+#define MCTS_LOG_BODY ;
+#else
+#define MCTS_LOG_FUNC static inline
+#define MCTS_LOG_BODY {}
+#endif
+
+MCTS_LOG_FUNC void mcts_log_text(const char *, ...) MCTS_LOG_BODY
+
+MCTS_LOG_FUNC void mcts_log_node(
+    const char *,
+    const struct mcts_ai * const,
+    const struct node * const)
+MCTS_LOG_BODY
+
+MCTS_LOG_FUNC void mcts_log_ball_moves(const struct ball_move *, int) MCTS_LOG_BODY
+
+MCTS_LOG_FUNC void mcts_log_history(const struct mcts_ai * const) MCTS_LOG_BODY
+
+MCTS_LOG_FUNC void mcts_log_state(const char *, const struct state * const) MCTS_LOG_BODY
 
 #define ERROR_BUF_SZ   256
 #define MAX_FREE_KICK_SERIE       10
@@ -1250,10 +1279,12 @@ static void init_magic_steps(void)
 static struct node * alloc_node(struct mcts_ai * restrict const me)
 {
     if (me->used_nodes >= me->total_nodes) {
+        mcts_log_text("Func %s - overflow", __func__);
         ++me->bad_node_alloc;
         return NULL;
     }
 
+    mcts_log_text("Func %s - new %d", __func__, me->used_nodes);
     struct node * restrict const result = me->nodes + me->used_nodes;
     ++me->good_node_alloc;
     ++me->used_nodes;
@@ -1404,13 +1435,56 @@ static inline struct node * get_answer(
     return me->nodes + enode->children[offset];
 }
 
+#if 0
+static inline void set_answer(
+    const struct mcts_ai * const me,
+    struct node * restrict const node,
+    int answer,
+    const struct node * const child)
+{
+    const int qanswers = node->opts.count;
+    if (answer < 0 || answer >= qanswers) {
+        /* WARN */
+        return;
+    }
+
+    const int ichild = child - me->nodes;
+
+    if (!node->opts.free_kick) {
+        if (answer >= QSTEPS) {
+            /* WARN */
+            return;
+        }
+        node->children[answer] = ichild;
+        return;
+    }
+
+    const int extra = extra_nodes(qanswers);
+    const int q0 = QSTEPS - extra;
+    if (answer < q0) {
+        node->children[answer] = ichild;
+        return;
+    }
+
+    const int block = (answer - q0) / EXNODE_CHILDREN;
+    const int offset = (answer - q0) % EXNODE_CHILDREN;
+    const int32_t eindex = node->children[q0 + block];
+    struct node * restrict const enode = me->nodes + eindex;
+    enode->children[offset] = ichild;
+}
+#endif
+
 int select_answer(
     const struct mcts_ai * const me,
     const struct node * const node,
     int qanswers)
 {
+    mcts_log_text("Func %s - enter", __func__);
+    mcts_log_node("  node", me, node);
+
     /* Only one answer - return it */
     if (qanswers == 1) {
+        mcts_log_text("  only one answer, return 0");
         return 0;
     }
 
@@ -1418,26 +1492,38 @@ int select_answer(
     int best_answers[QSTEPS * EXNODE_CHILDREN];
     float best_weight = -1.0e+10f;
 
-    const float total = node->qgames;
+    const int qgames = node->qgames;
+    if (qgames <= 0) {
+        int result = rand() % qanswers;
+        mcts_log_text("  clean paren node (free kick) return random %d", result);
+        return result;
+    }
+
+    const float total = qgames;
     const float log_total = log(total);
 
     for (int answer = 0; answer < qanswers; ++answer) {
         const struct node * const child = get_answer(me, node, answer);
         if (child == NULL) {
+            mcts_log_text("  child %d: NULL", answer);
             continue;
         }
 
+        const int ichild = child - me->nodes;
         const float score = child->score;
         const float qgames = child->qgames;
 
         if (qgames == 0) {
             /* Unexplored node - prioritize it */
+            mcts_log_text("  child %d (node %d): unexplored, return %d", answer, ichild, answer);
             return answer;
         }
 
         const float ev = score / qgames;
         const float investigation = sqrt(log_total / qgames);
         const float weight = ev + me->C * investigation;
+
+        mcts_log_text("  child %d (node %d): ev=%.4f qgames=%.0f weight=%.4f", answer, ichild, ev, qgames, weight);
 
         if (weight >= best_weight) {
             if (weight != best_weight) {
@@ -1450,11 +1536,14 @@ int select_answer(
 
     if (qbest == 0) {
         /* No valid answers found - return first */
+        mcts_log_text("  no valid answers, return 0");
         return 0;
     }
 
     const int index = qbest == 1 ? 0 : rand() % qbest;
-    return best_answers[index];
+    const int result = best_answers[index];
+    mcts_log_text("  return %d from qbest=%d", result, qbest);
+    return result;
 }
 
 static int pack_serie(
@@ -1514,6 +1603,7 @@ static void apply_answer(
     if (!node->opts.free_kick) {
         steps_t steps = node->answer;
         enum step step = magic_steps[steps][answer];
+        mcts_log_text("Step %s", step_names[step]);
         state_step(state, step);
         return;
     }
@@ -1536,7 +1626,9 @@ static void apply_answer(
         unpack_serie(child, steps);
 
         for (int i = 0; i < qsteps; ++i) {
-            state_step(state, steps[i]);
+            enum step step = steps[i];
+            mcts_log_text("Step %s", step_names[step]);
+            state_step(state, step);
         }
     }
 }
@@ -1558,43 +1650,25 @@ static int alloc_answers(
         return 1;
     }
 
-    for (int i=0; i<extra; ++i) {
-        struct node * enode = alloc_node(me);
-        if (enode == NULL) {
-            return 1;
+    if (extra == 0) {
+        int32_t * restrict const children = node->children;
+        for (int i=0; i<qanswers; ++i) {
+            struct node * child = alloc_node(me);
+            if (child == NULL) {
+                return 1;
+            }
+
+            int32_t ichild = child - me->nodes;
+            children[i] = ichild;
         }
 
-        node->children[QSTEPS - extra + i] = enode - me->nodes;
+        node->opts.free_kick = 1;
+        node->opts.count = qanswers;
+        return 0;
     }
 
-    int q0 = QSTEPS - extra;
-    int32_t * restrict children = node->children;
-    int current_block = 0;
-    int magic = EXNODE_CHILDREN - q0;
-    for (int i=0; i<qanswers; ++i) {
-        int block = magic / EXNODE_CHILDREN;
-        int offset = magic % EXNODE_CHILDREN;
-        ++magic;
-
-        if (block != current_block) {
-            current_block = block;
-            int32_t eindex = node->children[q0 + block];
-            struct node * enode = me->nodes + eindex;
-            children = enode->children;
-        }
-
-        struct node * child = alloc_node(me);
-        if (child == NULL) {
-            return 1;
-        }
-
-        int32_t ichild = child - me->nodes;
-        children[offset] = ichild;
-    }
-
-    node->opts.free_kick = 1;
-    node->opts.count = qanswers;
-    return 0;
+    mcts_log_text("!!! TODO !!! NOT IMPLEMENTED !!!; qanswers=%d;", qanswers);
+    return 1;
 }
 
 struct ball_move
@@ -1664,7 +1738,7 @@ static void fetch_free_kick(
     prep->current = 0;
 }
 
-static struct node * bsf_ball_move(
+static void bsf_ball_move(
     struct mcts_ai * const me,
     struct node * restrict const node,
     const struct ball_move * const bm,
@@ -1674,38 +1748,38 @@ static struct node * bsf_ball_move(
     const int count = bm->count;
     const struct bsf_serie * const * const sorted = bm->series;
 
+    mcts_log_text("Func %s - node=%d index=%d ball=%d count=%d", __func__, node - me->nodes, index, ball, count);
+
     const int max_count = 1 << QANSWERS_BITS;
     if (count < 0 || count >= max_count) {
         /* WARN */
-        return NULL;
+        mcts_log_text("  count out of range");
+        return;
     }
 
-    struct node * restrict const mnode = get_answer(me, node, index);
-    if (mnode == NULL) {
-        /* WARN */
-        return NULL;
-    }
-
-    mnode->opts.ball_move = 1;
-    mnode->answer = ball;
-
-    int status = alloc_answers(me, mnode, count);
+    int status = alloc_answers(me, node, count);
     if (status != 0) {
-        return NULL;
+        mcts_log_text("  alloc_answers failed");
+        return;
     }
 
     for (int i=0; i<count; ++i) {
-        struct node * restrict const pnode = get_answer(me, mnode, i);
+        struct node * restrict const pnode = get_answer(me, node, i);
         if (pnode == NULL) {
             /* WARN */
-            return NULL;
+            mcts_log_text("  pnode %d is NULL", i);
+            return;
         }
 
         pnode->opts.path = 1;
         pack_serie(pnode, sorted[i]);
+
+        mcts_log_text("");
+        mcts_log_node("pnode", me, pnode);
     }
 
-    return node;
+    node->opts.has_answers = 1;
+    node->opts.count = count;
 }
 
 static int compare_series(
@@ -1740,6 +1814,7 @@ static int calc_qanswers(
     bsf_gen(me, bsf, state, &me->cycle_guard);
 
     if (bsf->win != NULL) {
+        mcts_log_text("Func %s - found win", __func__);
         struct node * restrict const win_node = alloc_node(me);
         if (win_node == NULL) {
             return ENOMEM;
@@ -1757,7 +1832,9 @@ static int calc_qanswers(
         return 0;
     }
 
-    const int qseries = bsf->win != NULL ? 1 : bsf->qseries;
+    mcts_log_text("Func %s - found %d series", __func__, bsf->qseries);
+
+    const int qseries = bsf->qseries;
     if (qseries == 0) {
         node->opts.has_answers = 1;
         node->opts.count = 0;
@@ -1785,8 +1862,12 @@ static int calc_qanswers(
 
     const int status = alloc_answers(me, node, qballs);
     if (status != 0) {
+        mcts_log_text("Func %s - alloc_answers failed with code %d", __func__, status);
         return status;
     }
+
+    mcts_log_text("");
+    mcts_log_node("with children", me, node);
 
     const uint32_t * const dists = state->active == 1
         ? state->geometry->dist_goal1
@@ -1821,18 +1902,20 @@ static int calc_qanswers(
 
     /* Sort ball_moves by distance to goal */
     qsort(ball_moves, qballs, sizeof(struct ball_move), compare_ball_moves);
+    mcts_log_ball_moves(ball_moves, qballs);
 
     /* Create nodes in sorted order */
     for (int i=0; i<qballs; ++i) {
-        struct node * restrict const child = bsf_ball_move(me, node, ball_moves + i, i);
-        if (child == NULL) {
-            return -1;
-        }
+        struct node * restrict const bnode = get_answer(me, node, i);
+        bnode->opts.ball_move = 1;
+        bsf_ball_move(me, bnode, ball_moves + i, i);
+        mcts_log_node("ballmove", me, bnode);
     }
 
+    mcts_log_node("result", me, node);
     node->opts.has_answers = 1;
     node->opts.count = qballs;
-    return qballs;
+    return 0;
 }
 
 static uint32_t simulate(
@@ -1854,7 +1937,14 @@ static uint32_t simulate(
     uint32_t qthink = 1;
     me->hist_ptr = me->hist;
 
+
     for (;;) {
+        mcts_log_text("\n\n-------- new simulation iteration ---------------------\n");
+        mcts_log_state("current", state);
+        mcts_log_node("current", me, node);
+
+        const int active = state->active;
+
         int status = calc_qanswers(me, node, state);
         if (status != 0) {
             return 0;
@@ -1862,41 +1952,68 @@ static uint32_t simulate(
 
         int qanswers = node->opts.count;
         if (qanswers == 0) {
+            mcts_log_text("Func %s - no answers available, active=%d", __func__, state->active);
             update_history(me, state->active != 1 ? +1 : -1);
             return qthink;
         }
 
         int answer = select_answer(me, node, qanswers);
+        mcts_log_text("<-- select_answer: result=%d from qanswers=%d\n", answer, qanswers);
         ++qthink;
 
         struct node * restrict child = get_answer(me, node, answer);
+        const int is_terminal = child == zero;
         if (child == zero) {
             child = alloc_node(me);
             if (child == NULL) {
+                mcts_log_text("Func %s - out of nodes", __func__);
                 return 0;
             }
             node->children[answer] = child - me->nodes;
+            mcts_log_text("Func %s - allocated new child, index=%d", __func__, child - me->nodes);
+        } else {
+            mcts_log_text("Func %s - using existing child, index=%d", __func__, child - me->nodes);
         }
 
+        mcts_log_text("Func %s - apply answer %d from node %d", __func__, answer, node - me->nodes);
         apply_answer(me, state, node, answer);
+        mcts_log_state("next", state);
         status = state_status(state);
 
         if (status == WIN_1) {
+            mcts_log_text("Func %s - WIN_1 detected", __func__);
             update_history(me, +1);
             return qthink;
         }
 
         if (status == WIN_2) {
+            mcts_log_text("Func %s - WIN_2 detected", __func__);
             update_history(me, -1);
             return qthink;
         }
 
+        add_history(me, child, active);
+        mcts_log_text("Func %s - push node %d to history, active=%d", __func__, child - me->nodes, active);
+
+        if (is_terminal) {
+            mcts_log_text("Func %s - Find terminal node, break to rollout", __func__);
+            break;
+        }
+
         node = child;
-        add_history(me, node, state->active);
+        mcts_log_text("iteration done");
     }
 
+    mcts_log_text("\n\n------------- rollout ----------------------------\n");
+    mcts_log_state("last", state);
+    mcts_log_node("last", me, node);
     const int32_t score = rollout(state, me->max_depth, &qthink);
+    mcts_log_text("Rollout %s%d", score > 0 ? "+" : "-", score > 0 ? score : -score);
+
     update_history(me, score);
+    mcts_log_text("\n\n------------------ snapshot ----------------------\n");
+    mcts_log_history(me);
+    mcts_log_text("\n\n-------- simulation finished ---------------------\n");
     return qthink;
 }
 
@@ -2359,6 +2476,7 @@ int run_simulation(enum step * steps, int qsteps, int qsimulations)
     }
 
     root->qgames = 1;
+    root->opts.free_kick = is_free_kick_situation(me->state);
     for (int i=0; i<qsimulations; ++i) {
         simulate(me, root);
         ++root->qgames;
@@ -2755,7 +2873,235 @@ int test_gen_complete_free_kicks_long(void)
 
 int debug_simulate_free_kick(void)
 {
-    return run_simulation(fastest_free_kick1, ARRAY_LEN(fastest_free_kick1), 1);
+    return run_simulation(fastest_free_kick1, ARRAY_LEN(fastest_free_kick1), 1000);
+}
+
+#endif
+
+#if ENABLE_MCTS_LOGS
+
+FILE * flog;
+
+static void close_flog(void)
+{
+    if (flog != NULL) {
+        fclose(flog);
+        flog = NULL;
+    }
+}
+
+static void init_flog(void)
+{
+    if (flog != NULL) {
+        return;
+    }
+
+    char filename[32];
+    for (int i = 1; i <= 9999; i++) {
+        snprintf(filename, sizeof(filename), "mcts-log-%04d.log", i);
+        FILE * f = fopen(filename, "r");
+        if (f != NULL) {
+            fclose(f);
+            continue;
+        }
+
+        flog = fopen(filename, "w");
+        if (flog != NULL) {
+            printf("MCTS log file: %s\n", filename);
+            atexit(close_flog);
+        }
+        return;
+    }
+}
+
+static void mcts_log_text(const char * format, ...)
+{
+    init_flog();
+    if (flog == NULL) {
+        return;
+    }
+
+    va_list args;
+    va_start(args, format);
+    vfprintf(flog, format, args);
+    va_end(args);
+    fprintf(flog, "\n");
+    fflush(flog);
+}
+
+static void mcts_log_node(
+    const char * title,
+    const struct mcts_ai * const me,
+    const struct node * const node)
+
+{
+    init_flog();
+    if (flog == NULL) {
+        return;
+    }
+
+    int indent = 0;
+    while (*title == ' ') {
+        ++title;
+        ++indent;
+    }
+
+    const int index = node - me->nodes;
+    fprintf(flog, "%*sNode <%s>: index=%d score=%d qgames=%d answer=%u\n",
+        indent, "", title, index, node->score, node->qgames, node->answer);
+
+    fprintf(flog, "%*sopts:", indent+2, "");
+    fprintf(flog, " count=%d", node->opts.count);
+    fprintf(flog, " qsteps=%d", node->opts.qsteps);
+    fprintf(flog, " steps=%02X", node->opts.steps);
+    node->opts.has_answers && fprintf(flog, " has_answers");
+    node->opts.free_kick && fprintf(flog, " free_kick");
+    node->opts.ball_move && fprintf(flog, " ball_move");
+    node->opts.path && fprintf(flog, " path");
+    node->opts.win && fprintf(flog, " win");
+    fprintf(flog, "\n");
+
+    fprintf(flog, "%*schildren:", indent+2, "");
+    for (int i=0; i<QSTEPS; ++i) {
+        fprintf(flog, " %d", node->children[i]);
+    }
+    fprintf(flog, "\n\n");
+
+    fflush(flog);
+}
+
+static void mcts_log_serie(int index, const struct bsf_serie * serie)
+{
+    init_flog();
+    if (flog == NULL) {
+        return;
+    }
+
+    fprintf(flog, "    [%d] -", index);
+    for (int i = 0; i < serie->qsteps; ++i) {
+        fprintf(flog, " %s", step_names[serie->steps[i]]);
+    }
+    fprintf(flog, "\n");
+    fflush(flog);
+}
+
+static void mcts_log_ball_moves(const struct ball_move * ball_moves, int qballs)
+{
+    mcts_log_text("BallMoves - qballs=%d (sorted by distance)", qballs);
+    for (int i = 0; i < qballs; ++i) {
+        const struct ball_move * bm = &ball_moves[i];
+        mcts_log_text("  [%d] - ball=%d distance=%u count=%d", i, bm->ball, bm->distance, bm->count);
+        for (int j = 0; j < bm->count; ++j) {
+            mcts_log_serie(j, bm->series[j]);
+        }
+    }
+    mcts_log_text("");
+}
+
+static void mcts_log_node_tree(const struct mcts_ai * const me, const struct node * const node, int depth);
+
+static void mcts_log_history(const struct mcts_ai * const me)
+{
+    init_flog();
+    if (flog == NULL) {
+        return;
+    }
+
+    const struct node * const root = me->nodes + 1;
+    mcts_log_node_tree(me, root, 0);
+}
+
+static void mcts_log_node_tree(const struct mcts_ai * const me, const struct node * const node, int depth)
+{
+    if (node == NULL || node == me->nodes) {
+        return;
+    }
+
+    init_flog();
+    if (flog == NULL) {
+        return;
+    }
+
+    const int inode = node - me->nodes;
+
+    // Print indentation
+    for (int i = 0; i < depth; ++i) {
+        fprintf(flog, "  ");
+    }
+
+    fprintf(flog, "node %d: ", inode);
+
+    // Print node type and info
+    if (node->opts.ball_move) {
+        fprintf(flog, "ball=%d ", node->answer);
+    } else if (node->opts.path) {
+        fprintf(flog, "path=");
+        enum step steps[MAX_FREE_KICK_SERIE];
+        unpack_serie(node, steps);
+        for (int i = 0; i < node->opts.qsteps; ++i) {
+            if (i > 0) fprintf(flog, "-");
+            fprintf(flog, "%s", step_names[steps[i]]);
+        }
+        fprintf(flog, " ");
+    } else if (node->opts.has_answers && !node->opts.free_kick) {
+        // Regular steps - decode from answer
+        steps_t steps = node->answer;
+        int first = 1;
+        for (enum step step = 0; step < QSTEPS; ++step) {
+            if (steps & (1 << step)) {
+                if (!first) fprintf(flog, "-");
+                fprintf(flog, "%s", step_names[step]);
+                first = 0;
+            }
+        }
+        fprintf(flog, " ");
+    }
+
+    fprintf(flog, "score=%d qgames=%d\n", node->score, node->qgames);
+    fflush(flog);
+
+    // Recursively print children
+    if (node->opts.free_kick) {
+        const int qanswers = node->opts.count;
+        for (int i = 0; i < qanswers; ++i) {
+            const struct node * child = get_answer(me, node, i);
+            if (child != NULL && child != me->nodes) {
+                mcts_log_node_tree(me, child, depth + 1);
+            }
+        }
+    } else {
+        for (int i = 0; i < QSTEPS; ++i) {
+            if (node->children[i] != 0) {
+                const struct node * child = me->nodes + node->children[i];
+                mcts_log_node_tree(me, child, depth + 1);
+            }
+        }
+    }
+}
+
+static void mcts_log_state(const char * title, const struct state * const state)
+{
+    init_flog();
+    if (flog == NULL) {
+        return;
+    }
+
+    fprintf(flog, "State <%s>: active=%d ball=%d", title, state->active, state->ball);
+
+    if (state->step1 != INVALID_STEP) {
+        fprintf(flog, " step1=%s", step_names[state->step1]);
+    }
+
+    if (state->step2 != INVALID_STEP) {
+        fprintf(flog, " step2=%s", step_names[state->step2]);
+    }
+
+    if (state->step12 != 0) {
+        fprintf(flog, " step12=%016llX", state->step12);
+    }
+
+    fprintf(flog, "\n");
+    fflush(flog);
 }
 
 #endif
