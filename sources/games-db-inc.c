@@ -1,5 +1,37 @@
 /* Test game database for tests */
 
+enum geometry_type {
+    STD_GEOMETRY,
+    QGEOMETRIES
+};
+
+struct std_geom {
+    int width;
+    int height;
+    int goal_width;
+    int free_kick_len;
+};
+
+union geom_params {
+    struct std_geom std;
+};
+
+struct game_protocol {
+    const char * name;
+    enum geometry_type geometry;
+    union geom_params geom;
+    int qsteps;
+    const enum step * steps;
+};
+
+struct game_protocol protocol_empty = {
+    .name = "empty",
+    .geometry = STD_GEOMETRY,
+    .geom.std = { 15, 23, 6, 5 },
+    .qsteps = 0,
+    .steps = NULL,
+};
+
 enum step fastest_free_kick1[] = {
     NORTH, NORTH, NORTH,
     EAST, EAST, EAST,
@@ -67,7 +99,7 @@ enum step game_000461[] = {
     SOUTH, WEST, NORTH_WEST,
 };
 
-enum step debug_game_with_hang[] = {
+enum step game_with_hang_steps[] = {
     NORTH_EAST, NORTH_EAST, WEST,
     SOUTH_WEST, SOUTH_WEST, SOUTH_EAST,
     WEST, NORTH_WEST, NORTH_EAST,
@@ -176,4 +208,12 @@ enum step debug_game_with_hang[] = {
     NORTH_EAST, NORTH, WEST,
     NORTH, NORTH_EAST, SOUTH, SOUTH_EAST, SOUTH, SOUTH_EAST, SOUTH_WEST, NORTH, EAST, NORTH, SOUTH, WEST, NORTH, SOUTH, EAST, NORTH, SOUTH_WEST, EAST, SOUTH_WEST, SOUTH_WEST,
     */
+};
+
+struct game_protocol protocol_with_hang = {
+    .name = "debug_game_with_hang",
+    .geometry = STD_GEOMETRY,
+    .geom.std = { 21, 31, 6, 5 },
+    .qsteps = ARRAY_LEN(game_with_hang_steps),
+    .steps = game_with_hang_steps,
 };
