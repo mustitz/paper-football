@@ -25,4 +25,4 @@ int test_long_free_kick_to_win(void);
 int test_long_free_kick_to_loose(void);
 int test_gen_complete_free_kicks_long(void);
 
-int debug_simulate_free_kick(void);
+int debug_simulate(void);

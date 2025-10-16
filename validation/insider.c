@@ -81,7 +81,7 @@ const struct test_item tests[] = {
     { "long-free-kick-to-loose", &test_long_free_kick_to_loose},
     { "gen-complete-free-kicks-long", &test_gen_complete_free_kicks_long},
 
-    { "debug-simulate-free-kick", &debug_simulate_free_kick},
+    { "debug-simulate", &debug_simulate},
     { NULL, NULL }
 };
 
