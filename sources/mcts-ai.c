@@ -8,6 +8,7 @@
 
 struct mcts_ai;
 struct node;
+struct exnode;
 struct bsf_serie;
 struct ball_move;
 
@@ -25,6 +26,12 @@ MCTS_LOG_FUNC void mcts_log_node(
     const char *,
     const struct mcts_ai * const,
     const struct node * const)
+MCTS_LOG_BODY
+
+MCTS_LOG_FUNC void mcts_log_exnode(
+    const char *,
+    const struct mcts_ai * const,
+    const struct exnode * const)
 MCTS_LOG_BODY
 
 MCTS_LOG_FUNC void mcts_log_ball_moves(const struct ball_move *, int) MCTS_LOG_BODY
@@ -217,6 +224,8 @@ struct hist_item
 #define QANSWERS_BITS 8
 #define QSTEP_BITS 8
 
+#define EXNODE_CHILDREN (QSTEPS + 4)
+
 enum node_type {
     NODE_T, NODE_S, NODE_M, NODE_P
 };
@@ -244,8 +253,6 @@ struct node
     uint32_t tag;
     int32_t children[QSTEPS];
 };
-
-#define EXNODE_CHILDREN (QSTEPS + 4)
 
 struct exnode
 {
@@ -1430,9 +1437,6 @@ static inline struct node * get_answer(
 
     const int extra = extra_nodes(qanswers);
     const int q0 = QSTEPS - extra;
-    if (answer < q0) {
-        return me->nodes + node->children[answer];
-    }
 
     if (answer < q0) {
         return me->nodes + node->children[answer];
@@ -1441,8 +1445,8 @@ static inline struct node * get_answer(
     const int block = (answer - q0) / EXNODE_CHILDREN;
     const int offset = (answer - q0) % EXNODE_CHILDREN;
     const int32_t eindex = node->children[q0 + block];
-    const struct node * const enode = me->nodes + eindex;
-    return me->nodes + enode->children[offset];
+    const struct exnode * const exnode = (void *) (me->nodes + eindex);
+    return me->nodes + exnode->children[offset];
 }
 
 #if 0
@@ -1650,8 +1654,9 @@ static int alloc_answers(
         return 1;
     }
 
+    int32_t * restrict const children = node->children;
+
     if (extra == 0) {
-        int32_t * restrict const children = node->children;
         for (int i=0; i<qanswers; ++i) {
             struct node * child = alloc_node(me, type, INVALID_STEP);
             if (child == NULL) {
@@ -1666,8 +1671,51 @@ static int alloc_answers(
         return 0;
     }
 
-    mcts_log_text("!!! TODO !!! NOT IMPLEMENTED !!!; qanswers=%d;", qanswers);
-    return 1;
+    const int q0 = QSTEPS - extra;
+
+    struct exnode * exnodes[extra];
+    for (int i=0; i<extra; ++i) {
+        struct node * node = alloc_node(me, 0, 0);
+        if (node == NULL) {
+            return 1;
+        }
+
+        children[q0 + i] = node - me->nodes;
+        exnodes[i] = (void*) node;
+    }
+
+    for (int i=0; i<q0; ++i) {
+        struct node * child = alloc_node(me, type, INVALID_STEP);
+        if (child == NULL) {
+            return 1;
+        }
+
+        int32_t ichild = child - me->nodes;
+        children[i] = ichild;
+    }
+
+    int counter = 0;
+    for (int i=q0; i<qanswers; ++i) {
+        struct node * child = alloc_node(me, type, INVALID_STEP);
+        if (child == NULL) {
+            return 1;
+        }
+
+        int block = counter / EXNODE_CHILDREN;
+        int offset = counter % EXNODE_CHILDREN;
+        ++counter;
+
+        struct exnode * restrict const exnode = exnodes[block];
+        exnode->children[offset] = child - me->nodes;
+    }
+
+    for (int i=0; i<extra; ++i) {
+        char buf[2] = { '0' + extra, '\0' };
+        mcts_log_exnode(buf, me, exnodes[i]);
+    }
+
+    node->opts.qanswers = qanswers;
+    return 0;
 }
 
 struct ball_move
@@ -1724,7 +1772,7 @@ static int best_answer(
     return best_answers[index];
 }
 
-static void bsf_ball_move(
+static int bsf_ball_move(
     struct mcts_ai * const me,
     struct node * restrict const node,
     const struct ball_move * const bm,
@@ -1735,18 +1783,19 @@ static void bsf_ball_move(
     const struct bsf_serie * const * const sorted = bm->series;
 
     mcts_log_text("Func %s - node=%d index=%d ball=%d count=%d", __func__, node - me->nodes, index, ball, count);
+    mcts_log_node("node", me, node);
 
     const int max_count = 1 << QANSWERS_BITS;
     if (count < 0 || count >= max_count) {
         /* WARN */
         mcts_log_text("  count out of range");
-        return;
+        return EFAULT;
     }
 
     int status = alloc_answers(me, node, count, NODE_P);
     if (status != 0) {
         mcts_log_text("  alloc_answers failed");
-        return;
+        return ENOMEM;
     }
 
     for (int i=0; i<count; ++i) {
@@ -1754,7 +1803,7 @@ static void bsf_ball_move(
         if (pnode == NULL) {
             /* WARN */
             mcts_log_text("  pnode %d is NULL", i);
-            return;
+            return EFAULT;
         }
 
         pack_serie(pnode, sorted[i]);
@@ -1766,6 +1815,7 @@ static void bsf_ball_move(
     node->opts.has_answers = 1;
     node->opts.qanswers = count;
     node->tag = ball;
+    return 0;
 }
 
 static int compare_series(
@@ -1801,18 +1851,31 @@ static int calc_qanswers(
 
     if (bsf->win != NULL) {
         mcts_log_text("Func %s - found win", __func__);
-        struct node * restrict const win_node = alloc_node(me, NODE_T, INVALID_STEP);
+        struct node * restrict const win_node = alloc_node(me, NODE_M, INVALID_STEP);
         if (win_node == NULL) {
             return ENOMEM;
         }
 
+        struct node * restrict const pnode = alloc_node(me, NODE_P, INVALID_STEP);
+        if (pnode == NULL) {
+            return ENOMEM;
+        }
+
+        pack_serie(pnode, bsf->win);
+        pnode->opts.qanswers = 0;
+        pnode->opts.has_answers = 1;
+        mcts_log_node("pwin", me, win_node);
+
         win_node->score = 2;
         win_node->qgames = 1;
-        pack_serie(win_node, bsf->win);
-        win_node->opts.qanswers = 0;
+        win_node->opts.has_answers = 1;
+        win_node->opts.qanswers = 1;
+        win_node->children[0] = pnode - me->nodes;
+        mcts_log_node("mwin", me, win_node);
 
         node->children[0] = win_node - me->nodes;
         node->opts.qanswers = 1;
+        node->opts.has_answers = 1;
         return 0;
     }
 
@@ -1888,10 +1951,20 @@ static int calc_qanswers(
     qsort(ball_moves, qballs, sizeof(struct ball_move), compare_ball_moves);
     mcts_log_ball_moves(ball_moves, qballs);
 
+    mcts_log_node("node", me, node);
+
     /* Create nodes in sorted order */
     for (int i=0; i<qballs; ++i) {
+        mcts_log_text("Func %s - get_answer %d for node %d", __func__, i, node - me->nodes);
         struct node * restrict const bnode = get_answer(me, node, i);
-        bsf_ball_move(me, bnode, ball_moves + i, i);
+        if (bnode == NULL) {
+            /* WARN */
+            return EFAULT;
+        }
+        const int status = bsf_ball_move(me, bnode, ball_moves + i, i);
+        if (status != 0) {
+            return status;
+        }
         mcts_log_node("ballmove", me, bnode);
     }
 
@@ -2051,6 +2124,7 @@ static enum step ai_go(
     struct preparation * restrict const prep = &me->prep;
     enum step prepared = preparation_pop(prep);
     if (prepared != INVALID_STEP) {
+        mcts_log_text("Func %s - return preparaion %s", __func__, step_names[prepared]);
         return prepared;
     }
 
@@ -3021,7 +3095,7 @@ static void mcts_log_node(
     fprintf(flog, "%*sopts:", indent+2, "");
     fprintf(flog, " type=%s", node_types[type]);
     if (step >= 0 && step < QSTEPS) {
-        fprintf(flog, "step=%s", step_names[step]);
+        fprintf(flog, " step=%s", step_names[step]);
     }
     if (node->opts.has_answers) {
         fprintf(flog, " qanswers=%d", node->opts.qanswers);
@@ -3050,6 +3124,32 @@ static void mcts_log_node(
     fflush(flog);
 }
 
+static void mcts_log_exnode(
+    const char * title,
+    const struct mcts_ai * const me,
+    const struct exnode * const exnode)
+{
+    init_flog();
+    if (flog == NULL) {
+        return;
+    }
+
+    int indent = 0;
+    while (*title == ' ') {
+        ++title;
+        ++indent;
+    }
+
+    const int index = (const struct node*) exnode - me->nodes;
+    fprintf(flog, "%*sExNode #%d <%s>", indent, "", index, title);
+
+    for (int i=0; i<EXNODE_CHILDREN; ++i) {
+        fprintf(flog, " %d", exnode->children[i]);
+    }
+    fprintf(flog, "\n");
+
+    fflush(flog);
+}
 static void mcts_log_serie(int index, const struct bsf_serie * serie)
 {
     init_flog();
