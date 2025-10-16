@@ -167,7 +167,11 @@ static inline enum step preparation_pop(
 
     int current = me->current;
     enum step result = me->preps[current++];
-    me->current = current < qpreps ? current : 0;
+    if (current >= qpreps) {
+        me->qpreps = 0;
+    } else {
+        me->current = current;
+    }
     return result;
 }
 
@@ -227,6 +231,7 @@ union node_opts
         unsigned steps : QSTEPS;
         unsigned has_answers : 1;
         unsigned type : 2;
+        unsigned step : 4;
     } ;
     uint32_t u32;
 };
@@ -1281,7 +1286,8 @@ static void init_magic_steps(void)
 
 static struct node * alloc_node(
     struct mcts_ai * restrict const me,
-    enum node_type type)
+    enum node_type type,
+    enum step step)
 {
     if (me->used_nodes >= me->total_nodes) {
         mcts_log_text("Func %s - overflow", __func__);
@@ -1296,6 +1302,7 @@ static struct node * alloc_node(
     memset(result, 0, sizeof(struct node));
 
     result->opts.type = type;
+    result->opts.step = step;
     return result;
 }
 
@@ -1646,7 +1653,7 @@ static int alloc_answers(
     if (extra == 0) {
         int32_t * restrict const children = node->children;
         for (int i=0; i<qanswers; ++i) {
-            struct node * child = alloc_node(me, type);
+            struct node * child = alloc_node(me, type, INVALID_STEP);
             if (child == NULL) {
                 return 1;
             }
@@ -1715,19 +1722,6 @@ static int best_answer(
 
     const int index = qbest == 1 ? 0 : rand() % qbest;
     return best_answers[index];
-}
-
-static void fetch_free_kick(
-    struct mcts_ai * restrict const me,
-    const struct node * const node)
-{
-    int answer = best_answer(me, node);
-    const struct node * const best = get_answer(me, node, answer);
-
-    struct preparation * restrict const prep = &me->prep;
-    unpack_serie(best, prep->preps);
-    prep->qpreps = node->opts.qsteps;
-    prep->current = 0;
 }
 
 static void bsf_ball_move(
@@ -1807,7 +1801,7 @@ static int calc_qanswers(
 
     if (bsf->win != NULL) {
         mcts_log_text("Func %s - found win", __func__);
-        struct node * restrict const win_node = alloc_node(me, NODE_T);
+        struct node * restrict const win_node = alloc_node(me, NODE_T, INVALID_STEP);
         if (win_node == NULL) {
             return ENOMEM;
         }
@@ -1953,7 +1947,7 @@ static uint32_t simulate(
         struct node * restrict child = get_answer(me, node, answer);
         const int is_terminal = child == zero;
         if (child == zero) {
-            child = alloc_node(me, NODE_S);
+            child = alloc_node(me, NODE_S, best_step(me, node, answer));
             if (child == NULL) {
                 mcts_log_text("Func %s - out of nodes", __func__);
                 return 0;
@@ -2017,6 +2011,26 @@ static int compare_stats(
     return 0;
 }
 
+static enum step best_preparation(
+    struct mcts_ai * restrict const me,
+    const struct node * const mnode)
+{
+    int ibest = best_answer(me, mnode);
+    mcts_log_text("Func %s - ibest = %d", __func__, ibest);
+
+    const struct node * const pnode = get_answer(me, mnode, ibest);
+    const int qsteps = pnode->opts.qsteps;
+    mcts_log_node("pnode", me, pnode);
+
+    struct preparation * restrict const prep = &me->prep;
+    prep->qpreps = qsteps;
+    prep->current = 0;
+    unpack_serie(pnode, prep->preps);
+
+    return preparation_peek(prep);
+}
+
+
 static enum step ai_go(
     struct mcts_ai * restrict const me,
     struct ai_explanation * restrict const explanation)
@@ -2035,7 +2049,7 @@ static enum step ai_go(
     }
 
     struct preparation * restrict const prep = &me->prep;
-    enum step prepared = preparation_peek(prep);
+    enum step prepared = preparation_pop(prep);
     if (prepared != INVALID_STEP) {
         return prepared;
     }
@@ -2070,7 +2084,7 @@ static enum step ai_go(
 
     reset_cache(me);
 
-    struct node * restrict const zero = alloc_node(me, NODE_T);
+    struct node * restrict const zero = alloc_node(me, NODE_T, INVALID_STEP);
     if (zero == NULL) {
         snprintf(me->error_buf, ERROR_BUF_SZ, "alloc zero node failed.");
         return INVALID_STEP;
@@ -2078,7 +2092,7 @@ static enum step ai_go(
     zero->score = 2;
     zero->qgames = 1;
 
-    struct node * restrict const root = alloc_node(me, NODE_T);
+    struct node * restrict const root = alloc_node(me, NODE_T, INVALID_STEP);
     if (root == NULL) {
         snprintf(me->error_buf, ERROR_BUF_SZ, "alloc root node failed.");
         return INVALID_STEP;
@@ -2101,31 +2115,35 @@ static enum step ai_go(
         }
     }
 
-    mcts_log_text("\n\n-------- ai->go, choosing answer -----------------\n");
+    mcts_log_text("\n\n======== ai=>go, choosing answer =================\n");
 
     mcts_log_node("root", me, root);
     for (int i=0; i<root->opts.qanswers; ++i) {
         const struct node * const child = get_answer(me, root, i);
-         mcts_log_node("child", me, child);
-    }
-    /*
-    const int status = calc_qanswers(me, root, state);
-    if (status != 0) {
-        return INVALID_STEP;
-    }*/
-
-    int answer = best_answer(me, root);
-
-    mcts_log_text("Func %s best_answer=%d", __func__, answer);
-
-    if (is_free_kick_situation(state)) {
-        const struct node * const node = get_answer(me, root, answer);
-        fetch_free_kick(me, node);
-        /* TODO explanation */
-        return preparation_peek(prep);
+        mcts_log_node("child", me, child);
     }
 
-    enum step result = best_step(me, root, answer);
+    int best = best_answer(me, root);
+
+    mcts_log_text("Func %s best_answer=%d", __func__, best);
+
+    const struct node * const  best_node = get_answer(me, root, best);
+    mcts_log_node("best", me, best_node);
+
+    const enum node_type best_type = best_node->opts.type;
+
+    enum step result;
+    switch (best_type) {
+        case NODE_S:
+            result = best_node->opts.step;
+            break;
+        case NODE_M:
+            result = best_preparation(me, best_node);
+            break;
+        default:
+            mcts_log_text("Func %s unexpected best node type!", __func__);
+            return INVALID_STEP;
+    }
 
     if (explanation) {
         double finish = clock();
@@ -2245,7 +2263,7 @@ static struct node * must_alloc_node(
     struct mcts_ai * restrict const me,
     enum node_type type)
 {
-    struct node * result = alloc_node(me, type);
+    struct node * result = alloc_node(me, type, INVALID_STEP);
     if (result == NULL) {
         test_fail("alloc_node failed.");
     }
@@ -2356,10 +2374,7 @@ int test_node_cache(void)
     for (int j=0; j<3; ++j) {
         reset_cache(me);
         for (unsigned int i=0; i<ALLOCATED_NODES; ++i) {
-            struct node * restrict const node = alloc_node(me, NODE_S);
-            if (node == NULL) {
-                test_fail("%d alloc node fails, NULL is returned.", i);
-            }
+            must_alloc_node(me, NODE_S);
 
             if (me->good_node_alloc != i+1) {
                 test_fail("good_node_alloc mismatch, actual %u, expected %u.", me->good_node_alloc, i+1);
@@ -2371,10 +2386,7 @@ int test_node_cache(void)
         }
 
         for (unsigned int i=0; i<ALLOCATED_NODES/2; ++i) {
-            struct node * restrict const node = alloc_node(me, NODE_S);
-            if (node != NULL) {
-                test_fail("%d alloc, failture expected, but node is allocated.", i);
-            }
+            must_alloc_node(me, NODE_S);
 
             if (me->good_node_alloc != ALLOCATED_NODES) {
                 test_fail("good_node_alloc mismatch, actual %u, expected %u.", me->good_node_alloc, ALLOCATED_NODES);
@@ -2417,7 +2429,7 @@ int test_mcts_history(void)
     const struct node * nodes[HISTORY_QITEMS];
 
     for (int i=0; i<HISTORY_QITEMS; ++i) {
-        struct node * restrict const node = alloc_node(me, NODE_S);
+        struct node * restrict const node = must_alloc_node(me, NODE_S);
         nodes[i] = node;
 
         const int active = (i%2) + 1;
@@ -2534,17 +2546,11 @@ int run_simulation(const struct game_protocol * const protocol, int qsimulations
 
     reset_cache(me);
 
-    struct node * restrict const zero = alloc_node(me, NODE_T);
-    if (zero == NULL) {
-        test_fail("alloc zero node failed.");
-    }
+    struct node * restrict const zero = must_alloc_node(me, NODE_T);
     zero->score = 2;
     zero->qgames = 1;
 
-    struct node * restrict const root = alloc_node(me, NODE_T);
-    if (zero == NULL) {
-        test_fail("alloc root node failed.");
-    }
+    struct node * restrict const root = must_alloc_node(me, NODE_T);
 
     root->qgames = 1;
     for (int i=0; i<qsimulations; ++i) {
@@ -3005,6 +3011,7 @@ static void mcts_log_node(
 
     const int index = node - me->nodes;
     const int type = node->opts.type;
+    const int step = node->opts.step;
     const int qsteps = node->opts.qsteps;
     const int qchildren = type != NODE_P ? QSTEPS : QSTEPS - 1;
 
@@ -3013,10 +3020,14 @@ static void mcts_log_node(
 
     fprintf(flog, "%*sopts:", indent+2, "");
     fprintf(flog, " type=%s", node_types[type]);
-    fprintf(flog, " qanswers=%d", node->opts.qanswers);
+    if (step >= 0 && step < QSTEPS) {
+        fprintf(flog, "step=%s", step_names[step]);
+    }
+    if (node->opts.has_answers) {
+        fprintf(flog, " qanswers=%d", node->opts.qanswers);
+    }
     fprintf(flog, " qsteps=%d", qsteps);
     fprintf(flog, " steps=%02X", node->opts.steps);
-    node->opts.has_answers && fprintf(flog, " has_answers");
     fprintf(flog, "\n");
 
     fprintf(flog, "%*schildren:", indent+2, "");
