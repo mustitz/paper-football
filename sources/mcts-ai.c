@@ -222,7 +222,7 @@ static const char * node_types[] = { "T", "S", "M", "P" };
 union node_opts
 {
     struct {
-        unsigned count : QANSWERS_BITS;
+        unsigned qanswers : QANSWERS_BITS;
         unsigned qsteps : QSTEP_BITS;
         unsigned steps : QSTEPS;
         unsigned has_answers : 1;
@@ -1415,7 +1415,7 @@ static inline struct node * get_answer(
         return NULL;
     }
 
-    const int qanswers = node->opts.count;
+    const int qanswers = node->opts.qanswers;
     if (answer >= qanswers) {
         /* WARN */
         return NULL;
@@ -1655,7 +1655,7 @@ static int alloc_answers(
             children[i] = ichild;
         }
 
-        node->opts.count = qanswers;
+        node->opts.qanswers = qanswers;
         return 0;
     }
 
@@ -1688,7 +1688,7 @@ static int best_answer(
     const struct mcts_ai * const me,
     const struct node * const node)
 {
-    const int qanswers = node->opts.count;
+    const int qanswers = node->opts.qanswers;
     int best_answers[qanswers];
 
     int qbest = 0;
@@ -1726,7 +1726,7 @@ static void fetch_free_kick(
 
     struct preparation * restrict const prep = &me->prep;
     unpack_serie(best, prep->preps);
-    prep->qpreps = node->opts.count;
+    prep->qpreps = node->opts.qsteps;
     prep->current = 0;
 }
 
@@ -1770,7 +1770,7 @@ static void bsf_ball_move(
     }
 
     node->opts.has_answers = 1;
-    node->opts.count = count;
+    node->opts.qanswers = count;
     node->tag = ball;
 }
 
@@ -1798,7 +1798,7 @@ static int calc_qanswers(
         steps_t steps = state_get_steps(state);
         node->opts.steps = steps;
         node->opts.has_answers = 1;
-        node->opts.count = step_count(steps);
+        node->opts.qanswers = step_count(steps);
         return 0;
     }
 
@@ -1815,10 +1815,10 @@ static int calc_qanswers(
         win_node->score = 2;
         win_node->qgames = 1;
         pack_serie(win_node, bsf->win);
-        win_node->opts.count = 0;
+        win_node->opts.qanswers = 0;
 
         node->children[0] = win_node - me->nodes;
-        node->opts.count = 1;
+        node->opts.qanswers = 1;
         return 0;
     }
 
@@ -1827,7 +1827,7 @@ static int calc_qanswers(
     const int qseries = bsf->qseries;
     if (qseries == 0) {
         node->opts.has_answers = 1;
-        node->opts.count = 0;
+        node->opts.qanswers = 0;
         return 0;
     }
 
@@ -1903,7 +1903,7 @@ static int calc_qanswers(
 
     mcts_log_node("result", me, node);
     node->opts.has_answers = 1;
-    node->opts.count = qballs;
+    node->opts.qanswers = qballs;
     return 0;
 }
 
@@ -1939,7 +1939,7 @@ static uint32_t simulate(
             return 0;
         }
 
-        int qanswers = node->opts.count;
+        int qanswers = node->opts.qanswers;
         if (qanswers == 0) {
             mcts_log_text("Func %s - no answers available, active=%d", __func__, state->active);
             update_history(me, state->active != 1 ? +1 : -1);
@@ -2104,7 +2104,7 @@ static enum step ai_go(
     mcts_log_text("\n\n-------- ai->go, choosing answer -----------------\n");
 
     mcts_log_node("root", me, root);
-    for (int i=0; i<root->opts.count; ++i) {
+    for (int i=0; i<root->opts.qanswers; ++i) {
         const struct node * const child = get_answer(me, root, i);
          mcts_log_node("child", me, child);
     }
@@ -2470,7 +2470,7 @@ int test_ucb_formula(void)
     };
 
     struct node * restrict const node = must_alloc_node(me, NODE_S);
-    node->opts.count = qanswers;
+    node->opts.qanswers = qanswers;
     node->qgames = 10;
     node->score = 0;
 
@@ -2488,7 +2488,7 @@ int test_ucb_formula(void)
         test_fail("Unexpected answer %d, expected 1 (EAST).", answer);
     }
 
-    root->opts.count = QSTEPS;
+    root->opts.qanswers = QSTEPS;
     for (enum step step=0; step<QSTEPS; ++step) {
         struct node * restrict const child = must_alloc_node(me, NODE_S);
         child->qgames = 1;
@@ -3013,7 +3013,7 @@ static void mcts_log_node(
 
     fprintf(flog, "%*sopts:", indent+2, "");
     fprintf(flog, " type=%s", node_types[type]);
-    fprintf(flog, " count=%d", node->opts.count);
+    fprintf(flog, " qanswers=%d", node->opts.qanswers);
     fprintf(flog, " qsteps=%d", qsteps);
     fprintf(flog, " steps=%02X", node->opts.steps);
     node->opts.has_answers && fprintf(flog, " has_answers");
@@ -3132,7 +3132,7 @@ static void snapshot_item(const struct mcts_ai * const me, const struct node * c
 
     fprintf(flog, "\n");
 
-    const int qanswers = node->opts.count;
+    const int qanswers = node->opts.qanswers;
     for (int i = 0; i < qanswers; ++i) {
         const struct node * child = get_answer(me, node, i);
         if (child != NULL && child != me->nodes) {
