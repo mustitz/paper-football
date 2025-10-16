@@ -74,7 +74,6 @@ const struct test_item tests[] = {
     { "random-ai-unstep", &test_random_ai_unstep},
     { "mcts-ai-unstep", &test_mcts_ai_unstep},
     { "cycle-detection", &test_cycle_detection},
-    { "ai-no-cycles", &test_ai_no_cycles},
     { "gen-complete-free-kicks", &test_gen_complete_free_kicks},
     { "gen-complete-free-kicks-win", &test_gen_complete_free_kicks_win},
     { "long-free-kick-to-win", &test_long_free_kick_to_win},

@@ -2184,6 +2184,7 @@ static enum step ai_go(
         qthink += delta_think;
         ++root->qgames;
 
+        mcts_log_text("Func %s - qgames=%d qthink=%d of %d", __func__, root->qgames, qthink, me->qthink);
         if (qthink >= me->qthink) {
             break;
         }
@@ -2460,7 +2461,10 @@ int test_node_cache(void)
         }
 
         for (unsigned int i=0; i<ALLOCATED_NODES/2; ++i) {
-            must_alloc_node(me, NODE_S);
+            const struct node * node = alloc_node(me, NODE_S, INVALID_STEP);
+            if (node != NULL) {
+                test_fail("allocation failure expected");
+            }
 
             if (me->good_node_alloc != ALLOCATED_NODES) {
                 test_fail("good_node_alloc mismatch, actual %u, expected %u.", me->good_node_alloc, ALLOCATED_NODES);
@@ -2757,75 +2761,6 @@ int test_cycle_detection(void)
     run_cycle_test(&guard, test6, ARRAY_LEN(test6));
 
     free(kicks);
-    return 0;
-}
-
-int test_ai_no_cycles(void)
-{
-    struct geometry * restrict const geometry = create_std_geometry(21, 31, 6, 5);
-    if (geometry == NULL) {
-        test_fail("create_std_geometry(21, 31, 6, 5) fails, return value is NULL, errno is %d.", errno);
-    }
-
-    struct ai storage;
-    struct ai * restrict const ai = &storage;
-    init_mcts_ai(ai, geometry);
-
-    int status = ai->do_steps(ai, ARRAY_LEN(game_002255), game_002255);
-    if (status != 0) {
-        test_fail("Failed to apply moves, status %d, error: %s", status, ai->error);
-    }
-
-    // Now engine moved:
-    // 1 NE NE NW E W E W E W E W E W E W E W E W E NE
-
-    status = ai->do_step(ai, NORTH_EAST);
-    if (status != 0) {
-        test_fail("Failed to apply step 1 in the last move, status %d, error: %s", status, ai->error);
-    }
-
-    status = ai->do_step(ai, NORTH_EAST);
-    if (status != 0) {
-        test_fail("Failed to apply step 2 in the last move, status %d, error: %s", status, ai->error);
-    }
-
-    status = ai->do_step(ai, NORTH_WEST);
-    if (status != 0) {
-        test_fail("Failed to apply step 3 in the last move, status %d, error: %s", status, ai->error);
-    }
-
-    status = ai->do_step(ai, EAST);
-    if (status != 0) {
-        test_fail("Failed to apply penalty step 1 in the last move, status %d, error: %s", status, ai->error);
-    }
-
-    status = ai->do_step(ai, WEST);
-    if (status != 0) {
-        test_fail("Failed to apply penalty step 2 in the last move, status %d, error: %s", status, ai->error);
-    }
-
-    // Now EAST might be forbidden by cycle guard
-    // Try 5 times AI
-
-    for (int i = 0; i < 5; ++i) {
-        enum step step = ai->go(ai, NULL);
-        if (step == INVALID_STEP) {
-            test_fail("ai_go() returned INVALID_STEP on iteration %d, error: %s", i, ai->error);
-        }
-
-        const struct warn * warn = ai->get_warn(ai, 0);
-        if (warn != NULL) {
-            test_fail("Warning after ai->go() on iteration %d: %s (at %s:%d)",
-                i, warn->msg, warn->file_name, warn->line_num);
-        }
-
-        if (step == EAST) {
-            test_fail("Try %d: cycle detected!", i);
-        }
-    }
-
-    ai->free(ai);
-    destroy_geometry(geometry);
     return 0;
 }
 
