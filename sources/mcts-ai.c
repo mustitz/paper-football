@@ -20,25 +20,36 @@ struct ball_move;
 #define MCTS_LOG_BODY {}
 #endif
 
-MCTS_LOG_FUNC void mcts_log_text(const char *, ...) MCTS_LOG_BODY
+MCTS_LOG_FUNC void mcts_log_text(
+    const char * fmt,
+    ...)
+MCTS_LOG_BODY
 
 MCTS_LOG_FUNC void mcts_log_node(
-    const char *,
-    const struct mcts_ai * const,
-    const struct node * const)
+    const char * name,
+    const struct mcts_ai * const me,
+    const struct node * const node)
 MCTS_LOG_BODY
 
 MCTS_LOG_FUNC void mcts_log_exnode(
-    const char *,
-    const struct mcts_ai * const,
-    const struct exnode * const)
+    const char * name,
+    const struct mcts_ai * const me,
+    const struct exnode * const exnode)
 MCTS_LOG_BODY
 
-MCTS_LOG_FUNC void mcts_log_ball_moves(const struct ball_move *, int) MCTS_LOG_BODY
+MCTS_LOG_FUNC void mcts_log_ball_moves(
+    const struct ball_move * bm,
+    int qballs)
+MCTS_LOG_BODY
 
-MCTS_LOG_FUNC void mcts_log_snapshot(const struct mcts_ai * const) MCTS_LOG_BODY
+MCTS_LOG_FUNC void mcts_log_snapshot(
+    const struct mcts_ai * const me)
+MCTS_LOG_BODY
 
-MCTS_LOG_FUNC void mcts_log_state(const char *, const struct state * const) MCTS_LOG_BODY
+MCTS_LOG_FUNC void mcts_log_state(
+    const char * name,
+    const struct state * const state)
+MCTS_LOG_BODY
 
 #define ERROR_BUF_SZ   256
 #define MAX_FREE_KICK_SERIE       10
