@@ -174,6 +174,11 @@ class Engine:
 
         return moves, explanation + errs
 
+    def debug(self):
+        lines, errs = self._send("ai debug", timeout=60)
+        errs = [ f"E: {err}" for err in errs ]
+        return lines, errs
+
     def move(self, moves_str):
         lines, errs = self._send(f"step {moves_str}")
         return not bool(errs), errs
