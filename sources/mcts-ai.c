@@ -2239,13 +2239,9 @@ static enum step ai_go(
         explanation->time = (finish - start) / CLOCKS_PER_SEC;
 
         size_t qstats = 1;
-        for (enum step step=0; step<QSTEPS; ++step) {
-            const uint32_t ichild = root->children[step];
-            if (ichild == 0) {
-                continue;
-            }
-
-            const struct node * const child = me->nodes + ichild;
+        for (int i=0; i<root->opts.qanswers; ++i) {
+            const struct node * const child = get_answer(me, root, i);
+            const enum step step = child->opts.step;
             const int32_t qgames = child->qgames;
             const int32_t score = child->score;
             double norm_score = -1.0;
