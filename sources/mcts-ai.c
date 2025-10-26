@@ -208,6 +208,7 @@ struct mcts_ai
     char * error_buf;
     struct ai_param params[QPARAMS+1];
     struct choice_stat stats[MAX_QANSWERS];
+    enum step * explanation_steps;
     struct preparation prep;
 
     uint32_t cache;
@@ -263,7 +264,7 @@ struct node
     int32_t score;
     int32_t qgames;
     union node_opts opts;
-    uint32_t tag;
+    int32_t ball;
     int32_t children[QSTEPS];
 };
 
@@ -847,7 +848,7 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     const uint32_t free_kick_len = geometry->free_kick_len;
     const uint32_t free_kick_reduce = (free_kick_len - 1) * (free_kick_len - 1);
     const size_t cycle_guard_capacity = 4 + qpoints / free_kick_reduce;
-    const size_t sizes[8] = {
+    const size_t sizes[9] = {
         sizeof(struct mcts_ai),
         sizeof(struct state),
         qpoints,
@@ -855,11 +856,12 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
         qpoints,
         cycle_guard_capacity * sizeof(struct kick),
         cycle_guard_capacity * sizeof(struct kick),
+        MAX_QANSWERS * MAX_FREE_KICK_SERIE * sizeof(enum step),
         ERROR_BUF_SZ
     };
 
-    void * ptrs[8];
-    void * data = multialloc(8, sizes, ptrs, 64);
+    void * ptrs[9];
+    void * data = multialloc(9, sizes, ptrs, 64);
 
     if (data == NULL) {
         free(bsf);
@@ -873,12 +875,14 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     uint8_t * restrict const backup_lines = ptrs[4];
     struct kick * restrict cycle_guard_kicks = ptrs[5];
     struct kick * restrict backup_cycle_guard_kicks = ptrs[6];
-    char * const error_buf = ptrs[7];
+    enum step * const explanation_steps = ptrs[7];
+    char * const error_buf = ptrs[8];
 
     me->state = state;
     me->backup = backup;
     me->error_buf = error_buf;
     me->bsf = bsf;
+    me->explanation_steps = explanation_steps;
 
     me->nodes = NULL;
     reset_cache(me);
@@ -1614,34 +1618,26 @@ static void unpack_serie(
 static void apply_answer(
     const struct mcts_ai * const me,
     struct state * restrict const state,
-    const struct node * const node,
-    int answer)
+    const struct node * const node)
 {
     /* For regular steps */
     if (node->opts.type == NODE_S) {
-        steps_t steps = node->opts.steps;
-        enum step step = magic_steps[steps][answer];
+        enum step step = node->opts.step;
         mcts_log_text("Step %s", step_names[step]);
         state_step(state, step);
         return;
     }
 
-    /* For free_kick: get child node */
-    const struct node * const child = get_answer(me, node, answer);
-    if (child == NULL) {
-        return;
-    }
-
     /* For ball_move - nothing to apply */
-    if (child->opts.type == NODE_M) {
+    if (node->opts.type == NODE_M) {
         return;
     }
 
     /* For path - unpack and apply serie */
-    if (child->opts.type == NODE_P) {
-        const int qsteps = child->opts.qsteps;
+    if (node->opts.type == NODE_P) {
+        const int qsteps = node->opts.qsteps;
         enum step steps[MAX_FREE_KICK_SERIE];
-        unpack_serie(child, steps);
+        unpack_serie(node, steps);
 
         for (int i = 0; i < qsteps; ++i) {
             enum step step = steps[i];
@@ -1829,7 +1825,7 @@ static int bsf_ball_move(
 
     node->opts.has_answers = 1;
     node->opts.qanswers = count;
-    node->tag = ball;
+    node->ball = ball;
     return 0;
 }
 
@@ -2035,7 +2031,7 @@ static uint32_t simulate(
 
         struct node * restrict child = get_answer(me, node, answer);
         const int is_terminal = child == zero;
-        if (child == zero) {
+        if (is_terminal) {
             child = alloc_node(me, NODE_S, best_step(me, node, answer));
             if (child == NULL) {
                 mcts_log_text("Func %s - out of nodes", __func__);
@@ -2047,10 +2043,18 @@ static uint32_t simulate(
             mcts_log_text("Func %s - using existing child, index=%d", __func__, child - me->nodes);
         }
 
-        mcts_log_text("Func %s - apply answer %d from node %d", __func__, answer, node - me->nodes);
-        apply_answer(me, state, node, answer);
+        mcts_log_text("Func %s - apply answer %d from node %d", __func__, answer, child - me->nodes);
+        apply_answer(me, state, child);
+
+        if (is_terminal) {
+            child->ball = state->ball;
+        }
+
         mcts_log_state("next", state);
         status = state_status(state);
+
+        add_history(me, child, active);
+        mcts_log_text("Func %s - push node %d to history, active=%d", __func__, child - me->nodes, active);
 
         if (status == WIN_1) {
             mcts_log_text("Func %s - WIN_1 detected", __func__);
@@ -2063,9 +2067,6 @@ static uint32_t simulate(
             update_history(me, -1);
             return qthink;
         }
-
-        add_history(me, child, active);
-        mcts_log_text("Func %s - push node %d to history, active=%d", __func__, child - me->nodes, active);
 
         if (is_terminal) {
             mcts_log_text("Func %s - Find terminal node, break to rollout", __func__);
@@ -2145,10 +2146,6 @@ static enum step ai_go(
     }
 
     struct state * restrict state = me->state;
-
-    if (is_free_kick_situation(state)) {
-        debug_trap();
-    }
 
     steps_t steps = state_get_steps(state);
     if (steps == 0) {
@@ -2241,6 +2238,8 @@ static enum step ai_go(
         explanation->time = (finish - start) / CLOCKS_PER_SEC;
 
         size_t qstats = 1;
+        enum step * restrict explanation_steps = me->explanation_steps;
+
         for (int i=0; i<root->opts.qanswers; ++i) {
             const struct node * const child = get_answer(me, root, i);
             const enum step step = child->opts.step;
@@ -2251,11 +2250,30 @@ static enum step ai_go(
                 norm_score = 0.5 * (score + qgames) / (double)qgames;
             }
 
-            const size_t i = step == result ? 0 : qstats;
-            me->stats[i].step = step;
-            me->stats[i].qgames = child->qgames;
-            me->stats[i].score = norm_score;
-            qstats += !!i;
+            const size_t istat = i == best ? 0 : qstats;
+            int qsteps = 0;
+
+            if (child->opts.type == NODE_S) {
+                *explanation_steps = step;
+                qsteps = 1;
+            }
+
+            if (child->opts.type == NODE_M) {
+                const int ibest = best_answer(me, child);
+                const struct node * const pnode = get_answer(me, child, ibest);
+                qsteps = pnode->opts.qsteps;
+                unpack_serie(pnode, explanation_steps);
+            }
+
+            struct choice_stat * restrict const stat = me->stats + istat;
+            stat->steps = explanation_steps;
+            stat->qsteps = qsteps;
+            stat->ball = child->ball;
+            stat->qgames = child->qgames;
+            stat->score = norm_score;
+
+            explanation_steps += qsteps;
+            qstats += !!istat;
         }
 
         explanation->qstats = qstats;
@@ -3144,7 +3162,7 @@ static void snode_print_steps(const struct node * const snode)
 
 static void mnode_print_ball(const struct node * const mnode)
 {
-    fprintf(flog, " ball=%d", mnode->tag);
+    fprintf(flog, " ball=%d", mnode->ball);
 }
 
 static void pnode_print_path(const struct node * const pnode)

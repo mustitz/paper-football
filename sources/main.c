@@ -419,12 +419,21 @@ static void explain_step(
         const struct choice_stat * ptr = explanation->stats;
         const struct choice_stat * const end = ptr + explanation->qstats;
         for (; ptr != end; ++ptr) {
-            printf("        %2s %5.1f%%", step_names[ptr->step], 100 * ptr->score);
-            if (ptr->qgames > 0) {
-                printf(" %6d\n", ptr->qgames);
-            } else {
-                printf("    N/A\n");
+            const int qsteps = ptr->qsteps;
+            const enum step * const steps = ptr->steps;
+            printf("        %2s", step_names[steps[0]]);
+            for (int i=1; i<qsteps; ++i) {
+                printf("-%s", step_names[steps[i]]);
             }
+
+            printf(" %5.1f%%", 100 * ptr->score);
+            if (ptr->qgames > 0) {
+                printf(" %6d", ptr->qgames);
+            } else {
+                printf("    N/A");
+            }
+
+            printf(" (ball %d)\n", ptr->ball);
         }
     }
 }

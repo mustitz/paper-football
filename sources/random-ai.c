@@ -11,6 +11,7 @@ struct random_ai
     struct state * backup;
     char * error_buf;
     struct choice_stat stats[QSTEPS];
+    enum step explanation_steps[QSTEPS];
 };
 
 static const struct ai_param terminator = { NULL, NULL, NO_TYPE, 0 };
@@ -230,14 +231,17 @@ enum step random_ai_go(
             continue;
         }
 
-        alternatives[qalternatives++] = step;
-
         if (explanation) {
-            stats->step = step;
+            me->explanation_steps[qalternatives] = step;
+            stats->steps = me->explanation_steps + qalternatives;
+            stats->qsteps = 1;
+            stats->ball = 0;
             stats->qgames = -1;
             stats->score = 0.5;
             ++stats;
         }
+
+        alternatives[qalternatives++] = step;
     }
 
     const int choice =  qalternatives > 1 ? rand() % qalternatives : 0;
