@@ -477,7 +477,7 @@ enum add_serie_status add_serie(
             WARN(ai, BSF_NODE_PARENT_NULL, "depth", depth, "qsteps", serie->qsteps);
             return ADDED_FAILURE;
         }
-    } while (depth > 0);
+    };
 
     if (node != me->root) {
         WARN(ai, BSF_NODE_NOT_FROM_ROOT, "node", node, "root", me->root);
@@ -497,7 +497,7 @@ enum add_serie_status add_serie(
     return me->qseries >= me->capacity ? ADDED_LAST : ADDED_OK;
 }
 
-void bsf_free_kicks(
+void bsf_go(
     struct mcts_ai * const ai,
     struct bsf_free_kicks * const me)
 {
@@ -695,10 +695,12 @@ void bsf_gen(
     state_copy(root->state, state);
     cycle_guard_reset(root->guard);
     me->root = root;
+    me->win = NULL;
+    me->loose = NULL;
 
     memset(me->alts, 0, me->stats_sz);
     memset(me->visits, 0, me->stats_sz);
-    bsf_free_kicks(ai, me);
+    bsf_go(ai, me);
 }
 
 static const uint32_t MIN_CACHE_SZ = (16 * sizeof(struct node));
@@ -1849,7 +1851,8 @@ static int calc_qanswers(
         return 0;
     }
 
-    if (node->opts.type == NODE_S || node->opts.type == NODE_P) {
+    const int is_free_kick = is_free_kick_situation(state);
+    if (!is_free_kick) {
         steps_t steps = state_get_steps(state);
         node->opts.steps = steps;
         node->opts.has_answers = 1;
