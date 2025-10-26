@@ -416,8 +416,8 @@ static void explain_step(
     }
 
     if (flags & step_mask) {
-        const struct step_stat * ptr = explanation->stats;
-        const struct step_stat * const end = ptr + explanation->qstats;
+        const struct choice_stat * ptr = explanation->stats;
+        const struct choice_stat * const end = ptr + explanation->qstats;
         for (; ptr != end; ++ptr) {
             printf("        %2s %5.1f%%", step_names[ptr->step], 100 * ptr->score);
             if (ptr->qgames > 0) {

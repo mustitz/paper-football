@@ -10,7 +10,7 @@ struct random_ai
     struct state * state;
     struct state * backup;
     char * error_buf;
-    struct step_stat stats[QSTEPS];
+    struct choice_stat stats[QSTEPS];
 };
 
 static const struct ai_param terminator = { NULL, NULL, NO_TYPE, 0 };
@@ -219,7 +219,7 @@ enum step random_ai_go(
         return INVALID_STEP;
     }
 
-    struct step_stat * restrict stats = me->stats;
+    struct choice_stat * restrict stats = me->stats;
     enum step alternatives[QSTEPS];
     int qalternatives = 0;
     for (enum step step=0; step<QSTEPS; ++step) {

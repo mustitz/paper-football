@@ -193,6 +193,13 @@ static inline enum step preparation_pop(
     return result;
 }
 
+#define QANSWERS_BITS 8
+#define QSTEP_BITS 8
+
+#define EXNODE_CHILDREN (QSTEPS + 4)
+
+#define MAX_QANSWERS (1 << QANSWERS_BITS)
+
 struct mcts_ai
 {
     struct state * state;
@@ -200,7 +207,7 @@ struct mcts_ai
     struct bsf_free_kicks * bsf;
     char * error_buf;
     struct ai_param params[QPARAMS+1];
-    struct step_stat stats[QSTEPS];
+    struct choice_stat stats[MAX_QANSWERS];
     struct preparation prep;
 
     uint32_t cache;
@@ -231,11 +238,6 @@ struct hist_item
     uint32_t inode;
     int active;
 };
-
-#define QANSWERS_BITS 8
-#define QSTEP_BITS 8
-
-#define EXNODE_CHILDREN (QSTEPS + 4)
 
 enum node_type {
     NODE_T, NODE_S, NODE_M, NODE_P
@@ -2091,8 +2093,8 @@ static int compare_stats(
     const void * const ptr_a,
     const void * const ptr_b)
 {
-    const struct step_stat * a = ptr_a;
-    const struct step_stat * b = ptr_b;
+    const struct choice_stat * a = ptr_a;
+    const struct choice_stat * b = ptr_b;
     if (a->qgames > b->qgames) return -1;
     if (a->qgames < b->qgames) return +1;
     return 0;
@@ -2265,7 +2267,7 @@ static enum step ai_go(
         }
 
         if (qstats > 2) {
-            qsort(me->stats + 1, qstats - 1, sizeof(struct step_stat), compare_stats);
+            qsort(me->stats + 1, qstats - 1, sizeof(struct choice_stat), compare_stats);
         }
 
         // Fill cache statistics in explanation
