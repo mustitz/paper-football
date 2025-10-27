@@ -9,6 +9,7 @@ class Player:
     def __init__(self, name):
         self.name = name
         self.score = 0
+        self.games_played = 0
         self.results = {}
 
 def parse_tourney(fn):
@@ -33,11 +34,15 @@ def parse_tourney(fn):
                     players[e1].results[e2] = players[e1].results.get(e2, '') + '1'
                     players[e2].results[e1] = players[e2].results.get(e1, '') + '0'
                     players[e1].score += 1
+                    players[e1].games_played += 1
+                    players[e2].games_played += 1
 
                 if result == '0-1':
                     players[e1].results[e2] = players[e1].results.get(e2, '') + '0'
                     players[e2].results[e1] = players[e2].results.get(e1, '') + '1'
                     players[e2].score += 1
+                    players[e1].games_played += 1
+                    players[e2].games_played += 1
 
     return list(players.values())
 
@@ -69,7 +74,8 @@ def pp_tourney(tourney_name):
             else:
                 results.append(p1.results.get(p2.name, '').ljust(max_results, '.'))
         results = ' '.join(results)
-        print(f"{i:2d}. {p1.name:<{name_width}}   {results} {p1.score:5d}")
+        win_rate = f"{p1.score / p1.games_played:.3f}" if p1.games_played > 0 else "-"
+        print(f"{i:2d}. {p1.name:<{name_width}}   {results} {p1.score:5d}    {win_rate:>5}")
 
 if __name__ == "__main__":
     tourney_name = sys.argv[1]
