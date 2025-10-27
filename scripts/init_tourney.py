@@ -15,21 +15,19 @@ DIMS = Dims(21, 31, 6, 5)
 if TYPE == CMATCH:
     c = FILLME
     qthink = FILLME
-    engine1, engine2 = FILLME, FILLME
+    engines = [FILLME, FILLME]
+    name = FIXME
+    cycles = FIXME
 
-    test_engine = max(engine1, engine2)
-    name = f'c-{test_engine:04d}-{qthink}M'
-    engines = [ f'dev-{n:04}/{qthink}M-C{c:.1f}' for n in (engine1, engine2) ]
-    cycles = 100
+    test_engine = max(*engines)
     BAD_TYPE = False
 
 if TYPE == TPLAY:
     engine = FILLME
     cycles = FILLME
     qthink = FILLME
+    name = FILLME
 
-    name = f't-{engine:04d}-{qthink}M'
-    engine_type = f'dev-{engine:04d}'
     qthinks = [qthink]
     engines = []
     Cs = [0.7, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.6]
