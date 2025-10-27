@@ -184,12 +184,17 @@ static inline enum step preparation_pop(
     }
 
     int current = me->current;
+    if (current >= qpreps) {
+        return INVALID_STEP;
+    }
+
     enum step result = me->preps[current++];
     if (current >= qpreps) {
         me->qpreps = 0;
     } else {
         me->current = current;
     }
+
     return result;
 }
 
@@ -2109,6 +2114,10 @@ static enum step best_preparation(
     mcts_log_text("Func %s - ibest = %d", __func__, ibest);
 
     const struct node * const pnode = get_answer(me, mnode, ibest);
+    if (pnode == NULL) {
+        /* WARN */
+        return INVALID_STEP;
+    }
     const int qsteps = pnode->opts.qsteps;
     mcts_log_node("pnode", me, pnode);
 
@@ -2139,7 +2148,7 @@ static enum step ai_go(
     }
 
     struct preparation * restrict const prep = &me->prep;
-    enum step prepared = preparation_pop(prep);
+    enum step prepared = preparation_peek(prep);
     if (prepared != INVALID_STEP) {
         mcts_log_text("Func %s - return preparaion %s", __func__, step_names[prepared]);
         return prepared;
@@ -2208,7 +2217,11 @@ static enum step ai_go(
     mcts_log_node("root", me, root);
     for (int i=0; i<root->opts.qanswers; ++i) {
         const struct node * const child = get_answer(me, root, i);
-        mcts_log_node("child", me, child);
+        if (child != NULL) {
+            mcts_log_node("child", me, child);
+        } else {
+            mcts_log_text("Func %s answer[%d] is NULL", __func__, i);
+        }
     }
 
     int best = best_answer(me, root);
@@ -2216,6 +2229,11 @@ static enum step ai_go(
     mcts_log_text("Func %s best_answer=%d", __func__, best);
 
     const struct node * const  best_node = get_answer(me, root, best);
+    if (best_node == NULL) {
+        /* WARN */
+        mcts_log_text("Func %s best node is null for answer %d", __func__, best);
+        return INVALID_STEP;
+    }
     mcts_log_node("best", me, best_node);
 
     const enum node_type best_type = best_node->opts.type;
@@ -2311,6 +2329,9 @@ static enum step ai_go(
 #define FK    5
 
 #define QROLLOUTS   1024
+
+#define MIN_QTHINK    (32 * 1024)
+#define MIN_CACHE     (2 * MIN_QTHINK)
 
 struct mcts_ctx
 {
@@ -2682,8 +2703,8 @@ int test_simulation(void)
 
 int test_mcts_ai_unstep(void)
 {
-    const uint32_t qthink = 2 * 1024;
-    const uint32_t cache = 2 * qthink;
+    const uint32_t qthink = MIN_QTHINK;
+    const uint32_t cache = MIN_CACHE;
 
     must_init_ctx(&protocol_empty);
     struct ai * restrict const ai = ctx->ai;
@@ -2972,6 +2993,97 @@ int test_gen_complete_free_kicks_long(void)
 
     free(fks);
     return 0;
+}
+
+static void check_prep_step(
+    struct preparation * restrict const prep,
+    const enum step expected)
+{
+    enum step peeked = preparation_peek(prep);
+    if (peeked != expected) {
+        test_fail("peek expected %d, got %d", expected, peeked);
+    }
+
+    enum step popped = preparation_pop(prep);
+    if (popped != expected) {
+        test_fail("pop expected %d, got %d", expected, popped);
+    }
+}
+
+int test_preparation(void)
+{
+    const enum step steps[] = { NORTH_EAST, SOUTH_WEST, SOUTH_EAST, NORTH_WEST, NORTH };
+    const int qsteps = ARRAY_LEN(steps);
+
+    struct preparation prep = {
+        .qpreps = qsteps,
+        .current = 0
+    };
+    memcpy(prep.preps, steps, qsteps * sizeof(enum step));
+
+    for (int i = 0; i < qsteps; ++i) {
+        check_prep_step(&prep, steps[i]);
+    }
+
+    check_prep_step(&prep, INVALID_STEP);
+
+    return 0;
+}
+
+int run_ai_go(const struct game_protocol * const protocol, const int qmoves)
+{
+    const uint32_t qthink = MIN_QTHINK;
+    const uint32_t cache = MIN_CACHE;
+
+    const enum step * const steps = protocol->steps;
+    const int qsteps = protocol->qsteps;
+
+    must_init_ctx(protocol);
+    struct ai * restrict const ai = ctx->ai;
+
+    must_set_param(ai, "cache", &cache);
+    must_set_param(ai, "qthink", &qthink);
+
+    int status = ai->do_steps(ai, qsteps, steps);
+    if (status != 0) {
+        test_fail("Failed to apply moves, status %d, error: %s", status, ai->error);
+    }
+
+    const struct state * const state = ai->get_state(ai);
+
+    for (int i = 0; i < qmoves; ++i) {
+        if (state_status(state) != IN_PROGRESS) {
+            break;
+        }
+
+        enum step step = ai->go(ai, NULL);
+        if (step < 0 || step >= INVALID_STEP) {
+            test_fail("ai->go returns invalid step %d at move %d", step, i);
+        }
+
+        printf("ai->go returns %s\n", step_names[step]);
+        const struct warn * warn = ai->get_warn(ai, 0);
+        if (warn != NULL) {
+            test_fail("Warning after ai->go() at move %d: %s (at %s:%d)",
+                i, warn->msg, warn->file_name, warn->line_num);
+        }
+
+        status = ai->do_step(ai, step);
+        if (status != 0) {
+            test_fail("ai->do_step(%s) failed at move %d, status %d, error: %s",
+                step_names[step], i, status, ai->error);
+        }
+
+        info("Move %d: %s\n", i, step_names[step]);
+    }
+
+    finit_ctx();
+    return 0;
+}
+
+int debug_ai_go(void)
+{
+    return run_ai_go(&protocol_with_hang, 10);
 }
 
 int debug_simulate(void)

@@ -79,7 +79,9 @@ const struct test_item tests[] = {
     { "long-free-kick-to-win", &test_long_free_kick_to_win},
     { "long-free-kick-to-loose", &test_long_free_kick_to_loose},
     { "gen-complete-free-kicks-long", &test_gen_complete_free_kicks_long},
+    { "preparation", &test_preparation},
 
+    { "debug-ai-go", &debug_ai_go},
     { "debug-simulate", &debug_simulate},
     { NULL, NULL }
 };

@@ -23,5 +23,7 @@ int test_gen_complete_free_kicks_win(void);
 int test_long_free_kick_to_win(void);
 int test_long_free_kick_to_loose(void);
 int test_gen_complete_free_kicks_long(void);
+int test_preparation(void);
 
+int debug_ai_go(void);
 int debug_simulate(void);
