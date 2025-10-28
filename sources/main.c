@@ -2,6 +2,7 @@
 #include "paper-football.h"
 #include "parser.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <time.h>
 
@@ -354,10 +355,10 @@ static void print_warn_param(const char * name, uint64_t value)
     if (name == NULL) {
         return;
     }
-    printf(" %s = %llu (0x%016llx)", name, value, value);
+    printf(" %s = %" PRIu64 " (0x%016" PRIx64 ")", name, value, value);
     const int64_t signed_value = (int64_t)value;
     if (signed_value < 0) {
-        printf(" [%lld]", signed_value);
+        printf(" [%" PRId64 "]", signed_value);
     }
 }
 
