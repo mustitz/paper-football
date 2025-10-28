@@ -2321,7 +2321,7 @@ static enum step ai_go(
 #ifdef MAKE_CHECK
 
 #include "insider.h"
-#include "games-db-inc.c"
+#include "db.h"
 
 #define BW   15
 #define BH   23
@@ -2815,12 +2815,13 @@ int test_cycle_detection(void)
     return 0;
 }
 
-struct bsf_free_kicks * run_bsf(const enum step * const moves, int qmoves)
+struct bsf_free_kicks * run_bsf(const struct game_protocol * const protocol, int qsteps_back)
 {
     const int MAX_DEPTH = 100;
     const int MAX_FREE_KICKS = 200;
 
-    struct geometry * restrict const geometry = create_std_geometry(21, 31, 6, 5);
+    const struct std_geom * g = &protocol->geom.std;
+    struct geometry * restrict const geometry = create_std_geometry(g->width, g->height, g->goal_width, g->free_kick_len);
     if (geometry == NULL) {
         test_fail("create_std_geometry(21, 31, 6, 5) fails, return value is NULL, errno is %d.", errno);
     }
@@ -2830,7 +2831,8 @@ struct bsf_free_kicks * run_bsf(const enum step * const moves, int qmoves)
     init_mcts_ai(ai, geometry);
     struct mcts_ai * restrict const me = ai->data;
 
-    int status = ai->do_steps(ai, qmoves, moves);
+    const int qsteps = protocol->qsteps - qsteps_back;
+    int status = ai->do_steps(ai, qsteps, protocol->steps);
     if (status != 0) {
         test_fail("Failed to apply moves, status %d, error: %s", status, ai->error);
     }
@@ -2915,7 +2917,7 @@ struct bsf_free_kicks * run_bsf(const enum step * const moves, int qmoves)
 
 int test_gen_complete_free_kicks(void)
 {
-    struct bsf_free_kicks * restrict const fks = run_bsf(fastest_free_kick1, ARRAY_LEN(fastest_free_kick1));
+    struct bsf_free_kicks * restrict const fks = run_bsf(&protocol_fastest_free_kick1, 0);
     if (fks->qseries != 8) {
         test_fail("bsf_gen returned %d series, expected 8", fks->qseries);
     }
@@ -2927,7 +2929,7 @@ int test_gen_complete_free_kicks(void)
 int test_gen_complete_free_kicks_win(void)
 {
     // Short game ending with penalty and goal
-    struct bsf_free_kicks * restrict const fks = run_bsf(game_000461, ARRAY_LEN(game_000461));
+    struct bsf_free_kicks * restrict const fks = run_bsf(&protocol_000461, 0);
 
     if (fks->win == NULL) {
         test_fail("Win path not detected in game 000461");
@@ -2949,7 +2951,7 @@ int test_long_free_kick_to_win(void)
 {
     // Last move sequence: NW N SE (regular move) + W SE SW SW (4-step penalty to GOAL_2)
     // We run BFS on position before last penalty (cut last 4 steps)
-    struct bsf_free_kicks * restrict const fks = run_bsf(game_000050, ARRAY_LEN(game_000050) - 4);
+    struct bsf_free_kicks * restrict const fks = run_bsf(&protocol_000050, 4);
 
     if (fks->win == NULL) {
         test_fail("Win path not detected in game 000050");
@@ -2973,7 +2975,7 @@ int test_long_free_kick_to_loose(void)
     //   1 NW NW S + NE W E W S N NE
     //   2 NW N SE + W SE SW SW
     // 14 steps before we have a free kick with loose
-    struct bsf_free_kicks * restrict const fks = run_bsf(game_000050, ARRAY_LEN(game_000050) - 14);
+    struct bsf_free_kicks * restrict const fks = run_bsf(&protocol_000050, 14);
 
     if (fks->loose == NULL) {
         test_fail("Loose path not detected in game 000050");
@@ -2985,7 +2987,7 @@ int test_long_free_kick_to_loose(void)
 
 int test_gen_complete_free_kicks_long(void)
 {
-    struct bsf_free_kicks * restrict const fks = run_bsf(game_with_hang_steps, ARRAY_LEN(game_with_hang_steps));
+    struct bsf_free_kicks * restrict const fks = run_bsf(&protocol_with_hang, 0);
 
     if (fks->qseries == 0) {
         test_fail("No series generated for real hung game penalty situation");

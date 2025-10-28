@@ -1,36 +1,6 @@
 /* Test game database for tests */
 
-enum geometry_type {
-    STD_GEOMETRY,
-    QGEOMETRIES
-};
-
-struct std_geom {
-    int width;
-    int height;
-    int goal_width;
-    int free_kick_len;
-};
-
-union geom_params {
-    struct std_geom std;
-};
-
-struct game_protocol {
-    const char * name;
-    enum geometry_type geometry;
-    union geom_params geom;
-    int qsteps;
-    const enum step * steps;
-};
-
-struct game_protocol protocol_empty = {
-    .name = "empty",
-    .geometry = STD_GEOMETRY,
-    .geom.std = { 15, 23, 6, 5 },
-    .qsteps = 0,
-    .steps = NULL,
-};
+#include "db.h"
 
 enum step fastest_free_kick1[] = {
     NORTH, NORTH, NORTH,
@@ -216,4 +186,44 @@ struct game_protocol protocol_with_hang = {
     .geom.std = { 21, 31, 6, 5 },
     .qsteps = ARRAY_LEN(game_with_hang_steps),
     .steps = game_with_hang_steps,
+};
+
+struct game_protocol protocol_000050 = {
+    .name = "game_000050",
+    .geometry = STD_GEOMETRY,
+    .geom.std = { 21, 31, 6, 5 },
+    .qsteps = ARRAY_LEN(game_000050),
+    .steps = game_000050,
+};
+
+struct game_protocol protocol_002255 = {
+    .name = "game_002255",
+    .geometry = STD_GEOMETRY,
+    .geom.std = { 21, 31, 6, 5 },
+    .qsteps = ARRAY_LEN(game_002255),
+    .steps = game_002255,
+};
+
+struct game_protocol protocol_000461 = {
+    .name = "game_000461",
+    .geometry = STD_GEOMETRY,
+    .geom.std = { 21, 31, 6, 5 },
+    .qsteps = ARRAY_LEN(game_000461),
+    .steps = game_000461,
+};
+
+struct game_protocol protocol_empty = {
+    .name = "empty",
+    .geometry = STD_GEOMETRY,
+    .geom.std = { 15, 23, 6, 5 },
+    .qsteps = 0,
+    .steps = NULL,
+};
+
+struct game_protocol protocol_fastest_free_kick1 = {
+    .name = "fastest_free_kick1",
+    .geometry = STD_GEOMETRY,
+    .geom.std = { 15, 23, 6, 5 },
+    .qsteps = ARRAY_LEN(fastest_free_kick1),
+    .steps = fastest_free_kick1,
 };
