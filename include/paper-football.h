@@ -16,21 +16,6 @@
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
-enum warn_nums {
-    WARN_WRONG_WARN = 1,
-    WARN_STEPS_ARE_CYCLES,
-    WARN_ACTIVE_OOR,
-    WARN_INCONSISTERN_STEPS_PRIORITY,
-    WARN_BSF_ALLOC_FAILED,
-    WARN_BSF_SERIES_OVERFLOW,
-    WARN_BSF_NODE_PARENT_NULL,
-    WARN_BSF_NODE_NOT_FROM_ROOT,
-    QWARNS
-};
-
-#define WARN(me, name, pname1, pvalue1, pname2, pvalue2) \
-    warns_add(me, WARN_##name, pname1, (uint64_t)pvalue1, pname2, (uint64_t)pvalue2, __FILENAME__, __LINE__)
-
 static inline ptrdiff_t ptr_diff(const void * const a, const void * const b)
 {
     const char * const byte_ptr_a = a;
@@ -124,6 +109,54 @@ static inline void dlist_move_all(
 
 
 void debug_trap(void);
+
+
+
+#define WARN(me, name, pname1, pvalue1, pname2, pvalue2) \
+    warns_add(me, WARN_##name, pname1, (uint64_t)pvalue1, pname2, (uint64_t)pvalue2, __FILENAME__, __LINE__)
+
+enum warn_nums {
+    WARN_WRONG_WARN = 1,
+    WARN_STEPS_ARE_CYCLES,
+    WARN_ACTIVE_OOR,
+    WARN_INCONSISTERN_STEPS_PRIORITY,
+    WARN_BSF_ALLOC_FAILED,
+    WARN_BSF_SERIES_OVERFLOW,
+    WARN_BSF_NODE_PARENT_NULL,
+    WARN_BSF_NODE_NOT_FROM_ROOT,
+    QWARNS
+};
+
+struct warn {
+    const char * msg;
+    const char * param1;
+    uint64_t value1;
+    const char * param2;
+    uint64_t value2;
+    const char * file_name;
+    int line_num;
+    int num;
+};
+
+struct warns
+{
+    struct warn warns[QWARNS];
+    int qwarns;
+};
+
+void warns_init(struct warns * const ws);
+void warns_reset(struct warns * const ws);
+const struct warn * warns_get(const struct warns * const ws, int index);
+void warns_add(
+    struct warns * restrict const ws,
+    int num,
+    const char * param1,
+    uint64_t value1,
+    const char * param2,
+    uint64_t value2,
+    const char * file_name,
+    int line_num);
+
 
 
 #define GOAL_1   -1
@@ -316,36 +349,6 @@ struct ai_param
     enum param_type type;
     size_t offset;
 };
-
-struct warn {
-    const char * msg;
-    const char * param1;
-    uint64_t value1;
-    const char * param2;
-    uint64_t value2;
-    const char * file_name;
-    int line_num;
-    int num;
-};
-
-struct warns
-{
-    struct warn warns[QWARNS];
-    int qwarns;
-};
-
-void warns_init(struct warns * const ws);
-void warns_add(
-    struct warns * restrict const ws,
-    int num,
-    const char * param1,
-    uint64_t value1,
-    const char * param2,
-    uint64_t value2,
-    const char * file_name,
-    int line_num);
-void warns_reset(struct warns * const ws);
-const struct warn * warns_get(const struct warns * const ws, int index);
 
 struct ai
 {
