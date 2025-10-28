@@ -241,6 +241,7 @@ struct bsf_free_kicks
     struct bsf_serie * loose;
     int * alts;
     int * visits;
+    struct state * states;
 };
 
 enum add_serie_status
@@ -497,6 +498,7 @@ struct bsf_free_kicks * create_bsf_free_kicks(
     me->loose = NULL;
     me->alts = alts;
     me->visits = visits;
+    me->states = states;
 
     dlist_init(&me->free);
     dlist_init(&me->waiting);
@@ -524,6 +526,20 @@ struct bsf_free_kicks * create_bsf_free_kicks(
     }
 
     return me;
+}
+
+void destroy_bsf_free_kicks(struct bsf_free_kicks * restrict const me)
+{
+    if (me == NULL) {
+        return;
+    }
+
+    const int capacity = me->capacity + 2;
+    for (int i = 0; i < capacity; ++i) {
+        free_state(&me->states[i]);
+    }
+
+    free(me);
 }
 
 void bsf_gen(
@@ -687,7 +703,7 @@ static void free_ai(struct mcts_ai * restrict const me)
     }
     free_state(me->state);
     free_state(me->backup);
-    free(me->bsf);
+    destroy_bsf_free_kicks(me->bsf);
     free(me);
 }
 
@@ -720,7 +736,7 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
     void * data = multialloc(9, sizes, ptrs, 64);
 
     if (data == NULL) {
-        free(bsf);
+        destroy_bsf_free_kicks(bsf);
         return NULL;
     }
 
@@ -2726,7 +2742,7 @@ int test_gen_complete_free_kicks(void)
         test_fail("bsf_gen returned %d series, expected 8", fks->qseries);
     }
 
-    free(fks);
+    destroy_bsf_free_kicks(fks);
     return 0;
 }
 
@@ -2747,7 +2763,7 @@ int test_gen_complete_free_kicks_win(void)
         test_fail("Win path has %d steps, expected 1", fks->win->qsteps);
     }
 
-    free(fks);
+    destroy_bsf_free_kicks(fks);
     return 0;
 }
 
@@ -2769,7 +2785,7 @@ int test_long_free_kick_to_win(void)
         test_fail("Win path has %d steps, expected <= 4", fks->win->qsteps);
     }
 
-    free(fks);
+    destroy_bsf_free_kicks(fks);
     return 0;
 }
 
@@ -2785,7 +2801,7 @@ int test_long_free_kick_to_loose(void)
         test_fail("Loose path not detected in game 000050");
     }
 
-    free(fks);
+    destroy_bsf_free_kicks(fks);
     return 0;
 }
 
@@ -2797,7 +2813,7 @@ int test_gen_complete_free_kicks_long(void)
         test_fail("No series generated for real hung game penalty situation");
     }
 
-    free(fks);
+    destroy_bsf_free_kicks(fks);
     return 0;
 }
 
