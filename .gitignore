@@ -5,6 +5,7 @@
 *.o
 *.trs
 *.log
+*~
 
 log
 .deps
