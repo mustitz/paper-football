@@ -159,6 +159,34 @@ void warns_add(
 
 
 
+enum cycle_result {
+    NO_CYCLE = 0,
+    CYCLE_FOUND = 1
+};
+
+struct kick {
+    int from, to, override;
+};
+
+struct cycle_guard {
+    int qkicks;
+    int capacity;
+    struct kick * kicks;
+};
+
+static inline void cycle_guard_reset(struct cycle_guard * restrict me)
+{
+    me->qkicks = 0;
+}
+
+static inline void cycle_guard_pop(struct cycle_guard * restrict me) {
+    me->qkicks--;
+}
+
+enum cycle_result cycle_guard_push(struct cycle_guard * restrict me, int from, int to);
+
+
+
 #define GOAL_1   -1
 #define GOAL_2   -2
 #define NO_WAY   -3

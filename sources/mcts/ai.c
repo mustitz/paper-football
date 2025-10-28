@@ -61,69 +61,6 @@ static const uint32_t     def_cache = CACHE_AUTO_CALCULATE;
 static const uint32_t def_max_depth =                  128;
 static const  float           def_C =                  1.4;
 
-enum cycle_result {
-    NO_CYCLE = 0,
-    CYCLE_FOUND = 1
-};
-
-struct kick {
-    int from, to, override;
-};
-
-struct cycle_guard {
-    int qkicks;
-    int capacity;
-    struct kick * kicks;
-};
-
-static inline void cycle_guard_reset(struct cycle_guard * restrict me)
-{
-    me->qkicks = 0;
-}
-
-enum cycle_result cycle_guard_push(struct cycle_guard * restrict me, int from, int to)
-{
-    if (me->qkicks >= me->capacity) {
-        return CYCLE_FOUND;
-    }
-
-    int override = 0;
-    int i = me->qkicks;
-    while (i --> 0) {
-        int count = 0
-            + (from == me->kicks[i].from) + (from == me->kicks[i].to)
-            + (to == me->kicks[i].from) + (to == me->kicks[i].to)
-            ;
-        if (count >= 2) {
-            override = 1;
-            break;
-        }
-    }
-
-    if (override && me->qkicks >= 2) {
-        i = me->qkicks;
-        while (i --> 0) {
-            if (me->kicks[i].to == to) {
-                return CYCLE_FOUND;
-            }
-            if (!me->kicks[i].override) {
-                break;
-            }
-        }
-    }
-
-    me->kicks[me->qkicks].from = from;
-    me->kicks[me->qkicks].to = to;
-    me->kicks[me->qkicks].override = override;
-    me->qkicks++;
-
-    return NO_CYCLE;
-}
-
-void cycle_guard_pop(struct cycle_guard * restrict me) {
-    me->qkicks--;
-}
-
 struct preparation
 {
     int qpreps;
@@ -2679,57 +2616,6 @@ int test_mcts_ai_unstep(void)
 
     destroy_state(check_state);
     finit_ctx();
-    return 0;
-}
-
-static void run_cycle_test(struct cycle_guard * restrict guard, const int * const path, int count) {
-    cycle_guard_reset(guard);
-
-    int expected_cycle_at = count - 1;  // Очікуємо цикл на останньому кроці
-    int cycle_found_at = -1;
-
-    for (int i = 1; i < count; ++i) {
-        int from = path[i-1];
-        int to = path[i];
-        enum cycle_result result = cycle_guard_push(guard, from, to);
-        if (result == CYCLE_FOUND) {
-            cycle_found_at = i;
-            break;
-        }
-    }
-
-    if (cycle_found_at != expected_cycle_at) {
-        test_fail("Expected cycle at step %d, got %d", expected_cycle_at, cycle_found_at);
-    }
-}
-
-int test_cycle_detection(void)
-{
-    const size_t capacity = 100;
-    struct kick * kicks = malloc(capacity * sizeof(struct kick));
-    if (kicks == NULL) {
-        test_fail("Failed to allocate kicks array");
-    }
-
-    struct cycle_guard guard;
-    guard.capacity = capacity;
-    guard.kicks = kicks;
-
-    int test1[] = { 1, 2, 1, 2 };
-    int test2[] = { 1, 2, 3, 1, 2, 1 };
-    int test3[] = { 1, 2, 3, 1, 2, 3, 1 };
-    int test4[] = { 1, 2, 1, 3, 1, 2, 1 };
-    int test5[] = { 1, 2, 3, 2, 4, 2, 1, 2 };
-    int test6[] = { 1, 2, 3, 4, 5, 6, 7, 5, 6, 7, 6 };
-
-    run_cycle_test(&guard, test1, ARRAY_LEN(test1));
-    run_cycle_test(&guard, test2, ARRAY_LEN(test2));
-    run_cycle_test(&guard, test3, ARRAY_LEN(test3));
-    run_cycle_test(&guard, test4, ARRAY_LEN(test4));
-    run_cycle_test(&guard, test5, ARRAY_LEN(test5));
-    run_cycle_test(&guard, test6, ARRAY_LEN(test6));
-
-    free(kicks);
     return 0;
 }
 
