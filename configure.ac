@@ -3,6 +3,7 @@ ${CFLAGS=""}
 
 AM_INIT_AUTOMAKE(dist-bzip2 subdir-objects)
 AC_CONFIG_MACRO_DIR([m4])
+AC_CANONICAL_HOST
 
 
 
@@ -31,6 +32,7 @@ AS_IF([test x"$mcts_logs" = x"true"],
     [AC_DEFINE([ENABLE_MCTS_LOGS], [0], [Enable MCTS logging])])
 
 MU_VALGRIND
+MU_LEAKS
 
 
 
