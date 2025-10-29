@@ -225,14 +225,6 @@ void bsf_dealloc(
     dlist_insert_before(&node->link, &me->free);
 }
 
-void cycle_guard_copy(
-    struct cycle_guard * restrict const dst,
-    const struct cycle_guard * restrict const src)
-{
-    dst->qkicks = src->qkicks;
-    memcpy(dst->kicks, src->kicks, src->qkicks * sizeof(struct kick));
-}
-
 enum add_serie_status add_serie(
     struct mcts_ai * const ai,
     struct bsf_free_kicks * restrict const me,

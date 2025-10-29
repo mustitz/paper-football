@@ -272,6 +272,14 @@ static inline void cycle_guard_pop(struct cycle_guard * restrict me) {
     me->qkicks--;
 }
 
+static inline void cycle_guard_copy(
+    struct cycle_guard * restrict const dst,
+    const struct cycle_guard * restrict const src)
+{
+    dst->qkicks = src->qkicks;
+    memcpy(dst->kicks, src->kicks, src->qkicks * sizeof(struct kick));
+}
+
 enum cycle_result cycle_guard_push(struct cycle_guard * restrict me, int from, int to);
 
 
