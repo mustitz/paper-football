@@ -1,6 +1,4 @@
-/* Test game database for tests */
-
-#include "db.h"
+#include "insider.h"
 
 enum step fastest_free_kick1[] = {
     NORTH, NORTH, NORTH,

@@ -548,30 +548,6 @@ struct ai
 
 const struct warn * ai_get_warn(struct ai * restrict const ai, int index);
 
-enum geometry_type {
-    STD_GEOMETRY,
-    QGEOMETRIES
-};
-
-struct std_geom {
-    int width;
-    int height;
-    int goal_width;
-    int free_kick_len;
-};
-
-union geom_params {
-    struct std_geom std;
-};
-
-struct game_protocol {
-    const char * name;
-    enum geometry_type geometry;
-    union geom_params geom;
-    int qsteps;
-    const enum step * steps;
-};
-
 int init_random_ai(
     struct ai * restrict const ai,
     const struct geometry * const geometry);

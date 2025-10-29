@@ -1746,10 +1746,8 @@ static enum step ai_go(
 #define GW    4
 #define FK    5
 
-#define QROLLOUTS   1024
-
+#define QROLLOUTS           1024
 #define MIN_QTHINK    (32 * 1024)
-#define MIN_CACHE     (2 * MIN_QTHINK)
 
 struct mcts_ctx
 {
@@ -1763,33 +1761,29 @@ struct mcts_ctx
 static struct mcts_ctx mcts_ctx_storage = { 0 };
 static struct mcts_ctx * restrict const ctx = &mcts_ctx_storage;
 
-static struct geometry * must_create_std_geometry(const struct std_geom * const params)
+static void must_init_ctx(
+    const struct game_protocol * const protocol)
 {
-    const int width = params->width;
-    const int height = params->height;
-    const int goal_width = params->goal_width;
-    const int free_kick_len = params->free_kick_len;
+    memset(ctx, 0, sizeof(struct mcts_ctx));
 
-    struct geometry * restrict const result = create_std_geometry(width, height, goal_width, free_kick_len);
-    if (result == NULL) {
-        test_fail("create_std_geometry(%d, %d, %d, %d) fails, return value is NULL, errno is %d.",
-            width, height, goal_width, free_kick_len, errno);
-    }
+    struct geometry * restrict const geometry = must_create_protocol_geometry(protocol);
+    struct ai * restrict const ai = &ctx->ai_storage;
 
-    return result;
+    init_mcts_ai(ai, geometry);
+    struct mcts_ai * restrict const mcts = ai->data;
+
+    ctx->geometry = geometry;
+    ctx->ai = ai;
+    ctx->mcts = mcts;
 }
 
-static struct geometry * must_create_protocol_geometry(const struct game_protocol * const protocol)
+static void free_ctx(void)
 {
-    enum geometry_type geometry = protocol->geometry;
-    switch (geometry) {
-        case STD_GEOMETRY:
-            return must_create_std_geometry(&protocol->geom.std);
-        default:
-            test_fail("game_protocol %s contains wrong geometry type %d", protocol->name, geometry);
-    }
+    struct geometry * restrict const geometry = ctx->geometry;
+    struct ai * restrict const ai = ctx->ai;
 
-    return NULL;
+    ai->free(ai);
+    destroy_geometry(geometry);
 }
 
 static void must_set_param(
@@ -1813,31 +1807,6 @@ static struct node * must_alloc_node(
     }
 
     return result;
-}
-
-static void must_init_ctx(
-    const struct game_protocol * const protocol)
-{
-    memset(ctx, 0, sizeof(struct mcts_ctx));
-
-    struct geometry * restrict const geometry = must_create_protocol_geometry(protocol);
-    struct ai * restrict const ai = &ctx->ai_storage;
-
-    init_mcts_ai(ai, geometry);
-    struct mcts_ai * restrict const mcts = ai->data;
-
-    ctx->geometry = geometry;
-    ctx->ai = ai;
-    ctx->mcts = mcts;
-}
-
-static void finit_ctx(void)
-{
-    struct geometry * restrict const geometry = ctx->geometry;
-    struct ai * restrict const ai = ctx->ai;
-
-    ai->free(ai);
-    destroy_geometry(geometry);
 }
 
 
@@ -2067,11 +2036,11 @@ int test_ucb_formula(void)
         test_fail("Some directions are visitied twice, visited mask is 0x%02X.", visited);
     }
 
-    finit_ctx();
+    free_ctx();
     return 0;
 }
 
-int run_simulation(const struct game_protocol * const protocol, int qsimulations)
+static int run_simulation(const struct game_protocol * const protocol, int qsimulations)
 {
     const uint32_t cache = 128 * qsimulations * sizeof(struct node);
 
@@ -2108,7 +2077,7 @@ int run_simulation(const struct game_protocol * const protocol, int qsimulations
         test_fail("root->qgames = %u, but %u expected.", root->qgames, qsimulations);
     }
 
-    finit_ctx();
+    free_ctx();
     return 0;
 }
 
@@ -2120,13 +2089,11 @@ int test_simulation(void)
 int test_mcts_ai_unstep(void)
 {
     const uint32_t qthink = MIN_QTHINK;
-    const uint32_t cache = MIN_CACHE;
 
     must_init_ctx(&protocol_empty);
     struct ai * restrict const ai = ctx->ai;
     const struct geometry * const geometry = ctx->geometry;
 
-    must_set_param(ai, "cache", &cache);
     must_set_param(ai, "qthink", &qthink);
 
     unsigned int qsteps = 0;
@@ -2176,14 +2143,13 @@ int test_mcts_ai_unstep(void)
     }
 
     destroy_state(check_state);
-    finit_ctx();
+    free_ctx();
     return 0;
 }
 
 int run_ai_go(const struct game_protocol * const protocol, const int qmoves)
 {
     const uint32_t qthink = MIN_QTHINK;
-    const uint32_t cache = MIN_CACHE;
 
     const enum step * const steps = protocol->steps;
     const int qsteps = protocol->qsteps;
@@ -2191,7 +2157,6 @@ int run_ai_go(const struct game_protocol * const protocol, const int qmoves)
     must_init_ctx(protocol);
     struct ai * restrict const ai = ctx->ai;
 
-    must_set_param(ai, "cache", &cache);
     must_set_param(ai, "qthink", &qthink);
 
     int status = ai->do_steps(ai, qsteps, steps);
@@ -2227,7 +2192,7 @@ int run_ai_go(const struct game_protocol * const protocol, const int qmoves)
         info("Move %d: %s\n", i, step_names[step]);
     }
 
-    finit_ctx();
+    free_ctx();
     return 0;
 }
 

@@ -1,7 +1,7 @@
-#include "db.h"
-
 void test_fail(const char * const fmt, ...) __attribute__ ((format (printf, 1, 2)));
 void info(const char * const fmt, ...) __attribute__ ((format (printf, 1, 2)));
+
+#include "db.h"
 
 int test_multialloc(void);
 int test_parser(void);
