@@ -16,50 +16,50 @@
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
-static inline ptrdiff_t ptr_diff(const void * const a, const void * const b)
-{
-    const char * const byte_ptr_a = a;
-    const char * const byte_ptr_b = b;
-    return byte_ptr_b - byte_ptr_a;
-}
+    static inline ptrdiff_t ptr_diff(const void * const a, const void * const b)
+    {
+        const char * const byte_ptr_a = a;
+        const char * const byte_ptr_b = b;
+        return byte_ptr_b - byte_ptr_a;
+    }
 
-static inline void * ptr_move(void * const ptr, const ptrdiff_t delta)
-{
-    char * const byte_ptr = ptr;
-    return byte_ptr + delta;
-}
+    static inline void * ptr_move(void * const ptr, const ptrdiff_t delta)
+    {
+        char * const byte_ptr = ptr;
+        return byte_ptr + delta;
+    }
 
-void * multialloc(
-    const size_t n,
-    const size_t * const sizes,
-    void * restrict * ptrs,
-    const size_t granularity);
+    void * multialloc(
+        const size_t n,
+        const size_t * const sizes,
+        void * restrict * ptrs,
+        const size_t granularity);
 
-/*
- * Double linked lists.
- */
+    /*
+     * Double linked lists.
+     */
 
-struct dlist
-{
-    struct dlist * next;
-    struct dlist * prev;
-};
+    struct dlist
+    {
+        struct dlist * next;
+        struct dlist * prev;
+    };
 
-static inline void dlist_init(struct dlist * restrict const me)
-{
-    me->next = me;
-    me->prev = me;
-}
+    static inline void dlist_init(struct dlist * restrict const me)
+    {
+        me->next = me;
+        me->prev = me;
+    }
 
-static inline int is_dlist_empty(const struct dlist * const me)
-{
-    return me->next == me;
-}
+    static inline int is_dlist_empty(const struct dlist * const me)
+    {
+        return me->next == me;
+    }
 
-static inline void dlist_insert_after(
-    struct dlist * const infant,
-    struct dlist * const prev)
-{
+    static inline void dlist_insert_after(
+        struct dlist * const infant,
+        struct dlist * const prev)
+    {
     struct dlist * next = prev->next;
     infant->next = next;
     infant->prev = prev;
@@ -123,6 +123,9 @@ enum step {
     WEST,
     QSTEPS
 };
+
+#define QANSWERS_BITS 8
+#define QSTEP_BITS 8
 
 #define INVALID_STEP QSTEPS
 #define BACK(s) ((enum step)(((s)+4) & 0x07))
@@ -327,6 +330,8 @@ struct geometry * create_std_geometry(
 
 void destroy_geometry(struct geometry * restrict const me);
 
+
+
 struct state
 {
     const struct geometry * geometry;
@@ -376,6 +381,61 @@ int state_rollback(
     struct state * restrict const me,
     const struct step_change * const changes,
     unsigned int qchanges);
+
+
+
+struct bsf_node;
+
+enum add_serie_status
+{
+    ADDED_OK,
+    ADDED_LAST,
+    ADDED_FAILURE
+};
+
+struct bsf_serie
+{
+    int ball;
+    int qsteps;
+    enum step * steps;
+};
+
+struct bsf_free_kicks
+{
+    int qseries;
+    int capacity;
+    int max_depth;
+    int max_alts;
+    int max_visits;
+    int stats_sz;
+    struct dlist free;
+    struct dlist waiting;
+    struct dlist used;
+    struct bsf_node * root;
+    struct bsf_serie * series;
+    struct bsf_serie * win;
+    struct bsf_serie * loose;
+    int * alts;
+    int * visits;
+    struct state * states;
+};
+
+struct bsf_free_kicks * create_bsf_free_kicks(
+    const struct geometry * const geometry,
+    int capacity,
+    int max_depth,
+    int max_alts,
+    int max_visits);
+
+void destroy_bsf_free_kicks(struct bsf_free_kicks * restrict const me);
+
+void bsf_gen(
+    struct warns * const warns,
+    struct bsf_free_kicks * const me,
+    const struct state * const state,
+    const struct cycle_guard * const guard);
+
+
 
 
 
