@@ -96,4 +96,39 @@ int test_cycle_detection(void)
     return 0;
 }
 
+static void check_prep_step(
+    struct preparation * restrict const prep,
+    const enum step expected)
+{
+    enum step peeked = preparation_peek(prep);
+    if (peeked != expected) {
+        test_fail("peek expected %d, got %d", expected, peeked);
+    }
+
+    enum step popped = preparation_pop(prep);
+    if (popped != expected) {
+        test_fail("pop expected %d, got %d", expected, popped);
+    }
+}
+
+int test_preparation(void)
+{
+    const enum step steps[] = { NORTH_EAST, SOUTH_WEST, SOUTH_EAST, NORTH_WEST, NORTH };
+    const int qsteps = ARRAY_LEN(steps);
+
+    struct preparation prep = {
+        .qpreps = qsteps,
+        .current = 0
+    };
+    memcpy(prep.preps, steps, qsteps * sizeof(enum step));
+
+    for (int i = 0; i < qsteps; ++i) {
+        check_prep_step(&prep, steps[i]);
+    }
+
+    check_prep_step(&prep, INVALID_STEP);
+
+    return 0;
+}
+
 #endif

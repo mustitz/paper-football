@@ -52,7 +52,6 @@ MCTS_LOG_FUNC void mcts_log_state(
 MCTS_LOG_BODY
 
 #define ERROR_BUF_SZ   256
-#define MAX_FREE_KICK_SERIE       10
 
 #define QPARAMS   4
 
@@ -60,53 +59,6 @@ static const uint32_t    def_qthink =          1024 * 1024;
 static const uint32_t     def_cache = CACHE_AUTO_CALCULATE;
 static const uint32_t def_max_depth =                  128;
 static const  float           def_C =                  1.4;
-
-struct preparation
-{
-    int qpreps;
-    int current;
-    enum step preps[MAX_FREE_KICK_SERIE];
-};
-
-static inline void preparation_reset(
-    struct preparation * restrict const me)
-{
-    me->qpreps = 0;
-}
-
-static inline enum step preparation_peek(
-    struct preparation * restrict const me)
-{
-    const int qpreps = me->qpreps;
-    if (qpreps == 0) {
-        return INVALID_STEP;
-    }
-
-    return me->preps[me->current];
-}
-
-static inline enum step preparation_pop(
-    struct preparation * restrict const me)
-{
-    const int qpreps = me->qpreps;
-    if (qpreps == 0) {
-        return INVALID_STEP;
-    }
-
-    int current = me->current;
-    if (current >= qpreps) {
-        return INVALID_STEP;
-    }
-
-    enum step result = me->preps[current++];
-    if (current >= qpreps) {
-        me->qpreps = 0;
-    } else {
-        me->current = current;
-    }
-
-    return result;
-}
 
 #define QANSWERS_BITS 8
 #define QSTEP_BITS 8
@@ -2788,41 +2740,6 @@ int test_gen_complete_free_kicks_long(void)
     }
 
     destroy_bsf_free_kicks(fks);
-    return 0;
-}
-
-static void check_prep_step(
-    struct preparation * restrict const prep,
-    const enum step expected)
-{
-    enum step peeked = preparation_peek(prep);
-    if (peeked != expected) {
-        test_fail("peek expected %d, got %d", expected, peeked);
-    }
-
-    enum step popped = preparation_pop(prep);
-    if (popped != expected) {
-        test_fail("pop expected %d, got %d", expected, popped);
-    }
-}
-
-int test_preparation(void)
-{
-    const enum step steps[] = { NORTH_EAST, SOUTH_WEST, SOUTH_EAST, NORTH_WEST, NORTH };
-    const int qsteps = ARRAY_LEN(steps);
-
-    struct preparation prep = {
-        .qpreps = qsteps,
-        .current = 0
-    };
-    memcpy(prep.preps, steps, qsteps * sizeof(enum step));
-
-    for (int i = 0; i < qsteps; ++i) {
-        check_prep_step(&prep, steps[i]);
-    }
-
-    check_prep_step(&prep, INVALID_STEP);
-
     return 0;
 }
 

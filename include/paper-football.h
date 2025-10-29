@@ -112,6 +112,95 @@ void debug_trap(void);
 
 
 
+enum step {
+    NORTH_WEST = 0,
+    NORTH,
+    NORTH_EAST,
+    EAST,
+    SOUTH_EAST,
+    SOUTH,
+    SOUTH_WEST,
+    WEST,
+    QSTEPS
+};
+
+#define INVALID_STEP QSTEPS
+#define BACK(s) ((enum step)(((s)+4) & 0x07))
+
+extern const char * step_names[QSTEPS];
+
+typedef uint32_t steps_t;
+
+static inline int step_count(steps_t steps)
+{
+    return __builtin_popcount(steps);
+}
+
+static inline enum step first_step(steps_t steps)
+{
+    return __builtin_ctz(steps);
+}
+
+static inline enum step extract_step(steps_t * mask)
+{
+    enum step result = first_step(*mask);
+    *mask &= *mask - 1;
+    return result;
+}
+
+
+
+#define MAX_FREE_KICK_SERIE       32
+
+struct preparation
+{
+    int qpreps;
+    int current;
+    enum step preps[MAX_FREE_KICK_SERIE];
+};
+
+static inline void preparation_reset(
+    struct preparation * restrict const me)
+{
+    me->qpreps = 0;
+}
+
+static inline enum step preparation_peek(
+    struct preparation * restrict const me)
+{
+    const int qpreps = me->qpreps;
+    if (qpreps == 0) {
+        return INVALID_STEP;
+    }
+
+    return me->preps[me->current];
+}
+
+static inline enum step preparation_pop(
+    struct preparation * restrict const me)
+{
+    const int qpreps = me->qpreps;
+    if (qpreps == 0) {
+        return INVALID_STEP;
+    }
+
+    int current = me->current;
+    if (current >= qpreps) {
+        return INVALID_STEP;
+    }
+
+    enum step result = me->preps[current++];
+    if (current >= qpreps) {
+        me->qpreps = 0;
+    } else {
+        me->current = current;
+    }
+
+    return result;
+}
+
+
+
 #define WARN(me, name, pname1, pvalue1, pname2, pvalue2) \
     warns_add(me, WARN_##name, pname1, (uint64_t)pvalue1, pname2, (uint64_t)pvalue2, __FILENAME__, __LINE__)
 
@@ -193,23 +282,6 @@ enum cycle_result cycle_guard_push(struct cycle_guard * restrict me, int from, i
 
 #define CACHE_AUTO_CALCULATE 0
 
-enum step {
-    NORTH_WEST = 0,
-    NORTH,
-    NORTH_EAST,
-    EAST,
-    SOUTH_EAST,
-    SOUTH,
-    SOUTH_WEST,
-    WEST,
-    QSTEPS
-};
-
-extern const char * step_names[QSTEPS];
-
-#define INVALID_STEP QSTEPS
-#define ACTIVE_STEP_FREE_KICK  -1
-
 #define CHANGE_PASS            -1
 #define CHANGE_FREE_KICK       -2
 #define CHANGE_STEP1           -3
@@ -218,27 +290,6 @@ extern const char * step_names[QSTEPS];
 #define CHANGE_STEP_12_HI      -6
 #define CHANGE_ACTIVE          -7
 #define CHANGE_BALL            -8
-
-#define BACK(s) ((enum step)(((s)+4) & 0x07))
-
-typedef uint32_t steps_t;
-
-static inline int step_count(steps_t steps)
-{
-    return __builtin_popcount(steps);
-}
-
-static inline enum step first_step(steps_t steps)
-{
-    return __builtin_ctz(steps);
-}
-
-static inline enum step extract_step(steps_t * mask)
-{
-    enum step result = first_step(*mask);
-    *mask &= *mask - 1;
-    return result;
-}
 
 
 
