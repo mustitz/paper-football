@@ -187,7 +187,6 @@ struct exnode
     int32_t children[EXNODE_CHILDREN];
 };
 
-static void init_magic_steps(void);
 static enum step ai_go(
     struct mcts_ai * restrict const me,
     struct ai_explanation * restrict const explanation);
@@ -709,8 +708,6 @@ static void free_ai(struct mcts_ai * restrict const me)
 
 struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
 {
-    init_magic_steps();
-
     struct bsf_free_kicks * bsf = create_bsf_free_kicks(geometry, 1 << QANSWERS_BITS, MAX_FREE_KICK_SERIE, 8, 8);
     if (bsf == NULL) {
         return NULL;
@@ -1165,27 +1162,6 @@ int init_mcts_ai(
 
 /* AI step selection */
 
-static enum step magic_steps[256][8];
-
-static void init_magic_steps(void)
-{
-    if (magic_steps[1][1] == 1) {
-        return;
-    }
-
-    for (uint32_t mask=0; mask<256; ++mask) {
-        steps_t steps = mask;
-        for (int n=0; n<8; ++n) {
-            if (steps == 0) {
-                magic_steps[mask][n] = INVALID_STEP;
-            } else {
-                enum step step = extract_step(&steps);
-                magic_steps[mask][n] = step;
-            }
-        }
-    }
-}
-
 static struct node * alloc_node(
     struct mcts_ai * restrict const me,
     enum node_type type,
@@ -1311,7 +1287,7 @@ static inline enum step best_step(
     const struct node * const node,
     int answer)
 {
-    return magic_steps[node->opts.steps][answer];
+    return get_nth_bit(me->state->geometry, node->opts.steps, answer);
 }
 
 static inline struct node * get_answer(
@@ -2297,8 +2273,6 @@ static void finit_ctx(void)
 
 int test_rollout(void)
 {
-    init_magic_steps();
-
     struct geometry * restrict const geometry = create_std_geometry(BW, BH, GW, FK);
     if (geometry == NULL) {
         test_fail("create_std_geometry(%d, %d, %d) fails, return value is NULL, errno is %d.",

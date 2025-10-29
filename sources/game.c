@@ -171,9 +171,9 @@ struct geometry * create_std_geometry(
     const size_t board_map_sz = qpoints * QSTEPS * sizeof(uint32_t);
     const size_t straight_sz = qpoints * sizeof(enum step);
     const size_t dist_sz = qpoints * sizeof(uint32_t);
-    const size_t sizes[7] = { sizeof(struct geometry), board_map_sz, board_map_sz, straight_sz, straight_sz, dist_sz, dist_sz };
-    void * ptrs[7];
-    void * data = multialloc(7, sizes, ptrs, 256);
+    const size_t sizes[8] = { sizeof(struct geometry), board_map_sz, board_map_sz, (1 << QSTEPS) * QSTEPS, straight_sz, straight_sz, dist_sz, dist_sz };
+    void * ptrs[8];
+    void * data = multialloc(8, sizes, ptrs, 256);
 
     if (data == NULL) {
         return NULL;
@@ -221,13 +221,21 @@ struct geometry * create_std_geometry(
         }
     }
 
+    uint8_t * restrict bit_table_ptr = ptrs[3];
+    for (uint32_t mask = 0; mask < 256; ++mask) {
+        steps_t steps = mask;
+        for (int n = 0; n < QSTEPS; ++n) {
+            *bit_table_ptr++ = steps == 0 ? INVALID_STEP : extract_step(&steps);
+        }
+    }
+
     const int goal1_x = width / 2;
     const int goal1_y = height;
     const int goal2_x = width / 2;
     const int goal2_y = -1;
 
-    enum step * restrict straight1 = ptrs[3];
-    enum step * restrict straight2 = ptrs[4];
+    enum step * restrict straight1 = ptrs[4];
+    enum step * restrict straight2 = ptrs[5];
     const int32_t * const free_kicks = ptrs[2];
 
     const int max_dist = width * width + height * height;
@@ -284,8 +292,8 @@ struct geometry * create_std_geometry(
         straight2[offset] = best_step2;
     }
 
-    uint32_t * restrict dist1 = ptrs[5];
-    uint32_t * restrict dist2 = ptrs[6];
+    uint32_t * restrict dist1 = ptrs[6];
+    uint32_t * restrict dist2 = ptrs[7];
 
     /* Initialize all distances to 0xFFFFFFFF (unprocessed) */
     memset(dist1, 0xFF, qpoints * sizeof(uint32_t));
@@ -343,10 +351,11 @@ struct geometry * create_std_geometry(
     me->free_kick_len = free_kick_len;
     me->connections = ptrs[1];
     me->free_kicks = ptrs[2];
-    me->straight_free_kick1 = ptrs[3];
-    me->straight_free_kick2 = ptrs[4];
-    me->dist_goal1 = ptrs[5];
-    me->dist_goal2 = ptrs[6];
+    me->bit_index_table = ptrs[3];
+    me->straight_free_kick1 = ptrs[4];
+    me->straight_free_kick2 = ptrs[5];
+    me->dist_goal1 = ptrs[6];
+    me->dist_goal2 = ptrs[7];
     return me;
 }
 
