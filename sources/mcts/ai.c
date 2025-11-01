@@ -1749,54 +1749,6 @@ static enum step ai_go(
 #define QROLLOUTS           1024
 #define MIN_QTHINK    (32 * 1024)
 
-struct mcts_ctx
-{
-    struct geometry * geometry;
-    struct ai * ai;
-    struct mcts_ai * mcts;
-
-    struct ai ai_storage;
-};
-
-static struct mcts_ctx mcts_ctx_storage = { 0 };
-static struct mcts_ctx * restrict const ctx = &mcts_ctx_storage;
-
-static void must_init_ctx(
-    const struct game_protocol * const protocol)
-{
-    memset(ctx, 0, sizeof(struct mcts_ctx));
-
-    struct geometry * restrict const geometry = must_create_protocol_geometry(protocol);
-    struct ai * restrict const ai = &ctx->ai_storage;
-
-    init_mcts_ai(ai, geometry);
-    struct mcts_ai * restrict const mcts = ai->data;
-
-    ctx->geometry = geometry;
-    ctx->ai = ai;
-    ctx->mcts = mcts;
-}
-
-static void free_ctx(void)
-{
-    struct geometry * restrict const geometry = ctx->geometry;
-    struct ai * restrict const ai = ctx->ai;
-
-    ai->free(ai);
-    destroy_geometry(geometry);
-}
-
-static void must_set_param(
-    struct ai * restrict const ai,
-    const char * const name,
-    const void * const ptr)
-{
-    const int status = ai->set_param(ai, name, ptr);
-    if (status != 0) {
-        test_fail("ai->set_param(%s, %p) fails with code %d, %s.", name, ptr, status, ai->error);
-    }
-}
-
 static struct node * must_alloc_node(
     struct mcts_ai * restrict const me,
     enum node_type type)
@@ -1808,8 +1760,6 @@ static struct node * must_alloc_node(
 
     return result;
 }
-
-
 
 int test_rollout(void)
 {
