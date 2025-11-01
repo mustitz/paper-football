@@ -16,50 +16,50 @@
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
-    static inline ptrdiff_t ptr_diff(const void * const a, const void * const b)
-    {
-        const char * const byte_ptr_a = a;
-        const char * const byte_ptr_b = b;
-        return byte_ptr_b - byte_ptr_a;
-    }
+static inline ptrdiff_t ptr_diff(const void * const a, const void * const b)
+{
+    const char * const byte_ptr_a = a;
+    const char * const byte_ptr_b = b;
+    return byte_ptr_b - byte_ptr_a;
+}
 
-    static inline void * ptr_move(void * const ptr, const ptrdiff_t delta)
-    {
-        char * const byte_ptr = ptr;
-        return byte_ptr + delta;
-    }
+static inline void * ptr_move(void * const ptr, const ptrdiff_t delta)
+{
+    char * const byte_ptr = ptr;
+    return byte_ptr + delta;
+}
 
-    void * multialloc(
-        const size_t n,
-        const size_t * const sizes,
-        void * restrict * ptrs,
-        const size_t granularity);
+void * multialloc(
+    const size_t n,
+    const size_t * const sizes,
+    void * restrict * ptrs,
+    const size_t granularity);
 
-    /*
-     * Double linked lists.
-     */
+/*
+ * Double linked lists.
+ */
 
-    struct dlist
-    {
-        struct dlist * next;
-        struct dlist * prev;
-    };
+struct dlist
+{
+    struct dlist * next;
+    struct dlist * prev;
+};
 
-    static inline void dlist_init(struct dlist * restrict const me)
-    {
-        me->next = me;
-        me->prev = me;
-    }
+static inline void dlist_init(struct dlist * restrict const me)
+{
+    me->next = me;
+    me->prev = me;
+}
 
-    static inline int is_dlist_empty(const struct dlist * const me)
-    {
-        return me->next == me;
-    }
+static inline int is_dlist_empty(const struct dlist * const me)
+{
+    return me->next == me;
+}
 
-    static inline void dlist_insert_after(
-        struct dlist * const infant,
-        struct dlist * const prev)
-    {
+static inline void dlist_insert_after(
+    struct dlist * const infant,
+    struct dlist * const prev)
+{
     struct dlist * next = prev->next;
     infant->next = next;
     infant->prev = prev;

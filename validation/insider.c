@@ -74,12 +74,12 @@ const struct test_item tests[] = {
     { "random-ai-unstep", &test_random_ai_unstep},
     { "mcts-ai-unstep", &test_mcts_ai_unstep},
     { "cycle-detection", &test_cycle_detection},
+    { "preparation", &test_preparation},
     { "gen-complete-free-kicks", &test_gen_complete_free_kicks},
     { "gen-complete-free-kicks-win", &test_gen_complete_free_kicks_win},
     { "long-free-kick-to-win", &test_long_free_kick_to_win},
     { "long-free-kick-to-loose", &test_long_free_kick_to_loose},
     { "gen-complete-free-kicks-long", &test_gen_complete_free_kicks_long},
-    { "preparation", &test_preparation},
 
     { "debug-ai-go", &debug_ai_go},
     { "debug-simulate", &debug_simulate},

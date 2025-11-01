@@ -21,6 +21,37 @@ struct game_protocol protocol_empty = {
 
 
 
+static enum step fastest_free_kick1[] = {
+    N, N, N,
+    E, E, E,
+    SW, SW, N, /* It is a free kick */
+};
+
+struct game_protocol protocol_fastest_free_kick1 = {
+    .name = "fastest free kick for player 1",
+    .geometry = STD_GEOMETRY,
+    .geom.std = { 15, 23, 6, 5 },
+    .qsteps = ARRAY_LEN(fastest_free_kick1),
+    .steps = fastest_free_kick1,
+};
+
+
+
+static enum step fastest_free_kick2[] = {
+    NW, NW, NE,
+    SE, S, NW, /* It is a free kick */
+};
+
+struct game_protocol protocol_fastest_free_kick2 = {
+    .name = "fastest free kick for player 2",
+    .geometry = STD_GEOMETRY,
+    .geom.std = { 15, 23, 6, 5 },
+    .qsteps = ARRAY_LEN(fastest_free_kick2),
+    .steps = fastest_free_kick2,
+};
+
+
+
 static enum step steps_step12_overflow_bug_example[] = {
     NE, NE, NW,
     SW, S, NE, S,
@@ -62,85 +93,7 @@ struct game_protocol protocol_step12_overflow_bug_example = {
 };
 
 
-
-enum step steps_from_game_002255_loop_in_engine_answer[] = {
-    N, NW, NE,
-    SE, S, NW, S,
-    NW, NW, E,
-    NW, NE, S, S,
-    NW, NW, NE,
-    W, SW, SE,
-    W, NW, NE,
-    W, SW, SE,
-    W, NW, NE,
-    NW, W, SE,
-    W, W, NW,
-    NE, E, SW, S,
-};
-
-struct game_protocol protocol_002255 = {
-    .name = "game 002255 with loop in engine answer",
-    .geometry = STD_GEOMETRY,
-    .geom.std = { 21, 31, 6, 5 },
-    .qsteps = ARRAY_LEN(steps_from_game_002255_loop_in_engine_answer),
-    .steps = steps_from_game_002255_loop_in_engine_answer,
-};
-
-enum step fastest_free_kick1[] = {
-    N, N, N,
-    E, E, E,
-    SW, SW, N,
-};
-
-enum step fastest_free_kick2[] = {
-    NW, NW, NE,
-    SE, S, NW,
-};
-
-enum step game_000050[] = {
-    N, NE, NW,
-    SW, S, NE, S,
-    NE, NE, NW,
-    E, SE, SW,
-    E, NE, NW,
-    E, SE, SW,
-    E, NE, NW,
-    E, SE, SW,
-    S, S, E,
-    SE, SE, SE,
-    W, W, N,
-    SW, SE, E,
-    SW, E, NE, NW,
-    SW, SE, N,
-    SE, SW, W,
-    SE, NE, E,
-    SW, SW, NW,
-    SW, S, NE,
-    SE, W, SE,
-    SW, S, S,
-    S, E, S,
-    NE, S, NE,
-    S, NE, SE,
-    N, NW, W,
-    NW, NW, S, NE, W, E, W, S, N, NE,
-    NW, N, SE, W, SE, SW, SW,
-};
-
-
-
-enum step game_000461[] = {
-    N, N, NE,
-    S, E, S,
-    NE, N, W,
-    NE, NW, E,
-    NW, NE, NW,
-    NE, S, E,
-    N, NW, NW,
-    NE, SE, E,
-    S, W, NW,
-};
-
-enum step game_with_hang_steps[] = {
+static enum step game_with_hang_steps[] = {
     NE, NE, W,
     SW, SW, SE,
     W, NW, NE,
@@ -237,30 +190,50 @@ enum step game_with_hang_steps[] = {
     E, NE, N,
     NW, SW, E, NE, NW, S, E, N, SW, NE, W, SE, W, S, N, E, NW, E, NW,
     NW, NW, NW,
-    SW, W, NE,
-    /* Not interesting            SE, E, W, S, SE, NW, N, SE, W, N, E, S, S, N, W, N, E, SW, S, NE, S, W, E, NW, E, N, W, NW, S,
-    NE, SE, SE,
-    SW, NW, E,
-    NW, SW, SE,
-    SW, NW, E,
-    NW, SW, S,
-    NW, N, NW,
-    E, E, S,
-    NE, N, W,
-    N, NE, S, SE, S, SE, SW, N, E, N, S, W, N, S, E, N, SW, E, SW, SW,
-    */
+    SW, W, NE, /* Hang now: SE, E, W, S, SE, NW, N, SE, W, N, E, S, S, N, W, N, E, SW, S, NE, S, W, E, NW, E, N, W, NW, S, */
 };
 
 struct game_protocol protocol_with_hang = {
-    .name = "debug_game_with_hang",
+    .name = "a debug game with_hang",
     .geometry = STD_GEOMETRY,
     .geom.std = { 21, 31, 6, 5 },
     .qsteps = ARRAY_LEN(game_with_hang_steps),
     .steps = game_with_hang_steps,
 };
 
+
+
+static enum step game_000050[] = {
+    N, NE, NW,
+    SW, S, NE, S,
+    NE, NE, NW,
+    E, SE, SW,
+    E, NE, NW,
+    E, SE, SW,
+    E, NE, NW,
+    E, SE, SW,
+    S, S, E,
+    SE, SE, SE,
+    W, W, N,
+    SW, SE, E,
+    SW, E, NE, NW,
+    SW, SE, N,
+    SE, SW, W,
+    SE, NE, E,
+    SW, SW, NW,
+    SW, S, NE,
+    SE, W, SE,
+    SW, S, S,
+    S, E, S,
+    NE, S, NE,
+    S, NE, SE,
+    N, NW, W,
+    NW, NW, S, NE, W, E, W, S, N, NE,
+    NW, N, SE, W, SE, SW, SW,
+};
+
 struct game_protocol protocol_000050 = {
-    .name = "game_000050",
+    .name = "game 000050",
     .geometry = STD_GEOMETRY,
     .geom.std = { 21, 31, 6, 5 },
     .qsteps = ARRAY_LEN(game_000050),
@@ -268,18 +241,48 @@ struct game_protocol protocol_000050 = {
 };
 
 
+
+static enum step game_000461[] = {
+    N, N, NE,
+    S, E, S,
+    NE, N, W,
+    NE, NW, E,
+    NW, NE, NW,
+    NE, S, E,
+    N, NW, NW,
+    NE, SE, E,
+    S, W, NW, /* Free kick wins here */
+};
+
 struct game_protocol protocol_000461 = {
-    .name = "game_000461",
+    .name = "game 000461",
     .geometry = STD_GEOMETRY,
     .geom.std = { 21, 31, 6, 5 },
     .qsteps = ARRAY_LEN(game_000461),
     .steps = game_000461,
 };
 
-struct game_protocol protocol_fastest_free_kick1 = {
-    .name = "fastest_free_kick1",
+
+
+enum step steps_from_game_002255_loop_in_engine_answer[] = {
+    N, NW, NE,
+    SE, S, NW, S,
+    NW, NW, E,
+    NW, NE, S, S,
+    NW, NW, NE,
+    W, SW, SE,
+    W, NW, NE,
+    W, SW, SE,
+    W, NW, NE,
+    NW, W, SE,
+    W, W, NW,
+    NE, E, SW, S, /* Now engine move contained loops: NE NE NW E W E W E W E W E W E W E W E W E NE */
+};
+
+struct game_protocol protocol_002255 = {
+    .name = "game 002255 with loop in engine answer",
     .geometry = STD_GEOMETRY,
-    .geom.std = { 15, 23, 6, 5 },
-    .qsteps = ARRAY_LEN(fastest_free_kick1),
-    .steps = fastest_free_kick1,
+    .geom.std = { 21, 31, 6, 5 },
+    .qsteps = ARRAY_LEN(steps_from_game_002255_loop_in_engine_answer),
+    .steps = steps_from_game_002255_loop_in_engine_answer,
 };

@@ -62,6 +62,7 @@ static struct bsf_node * bsf_alloc(
     if (is_dlist_empty(&me->free)) {
         return NULL;
     }
+
     struct dlist * first = me->free.next;
     dlist_remove(first);
     return bsf_node(first);
