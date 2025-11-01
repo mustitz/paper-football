@@ -25,7 +25,7 @@ run_test()
     if test "x$valgrind" != "x"; then
         cmd="$valgrind --quiet --leak-check=full --show-reachable=yes$sup_file $cmd $1 2>valgrind.log"
     elif test "x$leaks" != "x"; then
-        cmd="$leaks --quiet --atExit -- $cmd $1 2>/dev/null"
+        cmd="$cmd $1 && ($leaks --quiet --atExit -- $cmd $1 2>/dev/null)"
     else
         cmd="$cmd $1"
     fi
