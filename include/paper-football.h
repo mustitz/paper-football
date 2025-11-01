@@ -173,57 +173,6 @@ static inline enum step extract_step(steps_t * mask)
 
 
 
-#define MAX_FREE_KICK_SERIE       32
-
-struct preparation
-{
-    int qpreps;
-    int current;
-    enum step preps[MAX_FREE_KICK_SERIE];
-};
-
-static inline void preparation_reset(
-    struct preparation * restrict const me)
-{
-    me->qpreps = 0;
-}
-
-static inline enum step preparation_peek(
-    struct preparation * restrict const me)
-{
-    const int qpreps = me->qpreps;
-    if (qpreps == 0) {
-        return INVALID_STEP;
-    }
-
-    return me->preps[me->current];
-}
-
-static inline enum step preparation_pop(
-    struct preparation * restrict const me)
-{
-    const int qpreps = me->qpreps;
-    if (qpreps == 0) {
-        return INVALID_STEP;
-    }
-
-    int current = me->current;
-    if (current >= qpreps) {
-        return INVALID_STEP;
-    }
-
-    enum step result = me->preps[current++];
-    if (current >= qpreps) {
-        me->qpreps = 0;
-    } else {
-        me->current = current;
-    }
-
-    return result;
-}
-
-
-
 #define WARN(me, name, pname1, pvalue1, pname2, pvalue2) \
     warns_add(me, WARN_##name, pname1, (uint64_t)pvalue1, pname2, (uint64_t)pvalue2, __FILENAME__, __LINE__)
 
@@ -307,6 +256,57 @@ enum cycle_result cycle_guard_push(struct cycle_guard * restrict me, int from, i
 
 
 
+#define MAX_FREE_KICK_SERIE       32
+
+struct preparation
+{
+    int qpreps;
+    int current;
+    enum step preps[MAX_FREE_KICK_SERIE];
+};
+
+static inline void preparation_reset(
+    struct preparation * restrict const me)
+{
+    me->qpreps = 0;
+}
+
+static inline enum step preparation_peek(
+    struct preparation * restrict const me)
+{
+    const int qpreps = me->qpreps;
+    if (qpreps == 0) {
+        return INVALID_STEP;
+    }
+
+    return me->preps[me->current];
+}
+
+static inline enum step preparation_pop(
+    struct preparation * restrict const me)
+{
+    const int qpreps = me->qpreps;
+    if (qpreps == 0) {
+        return INVALID_STEP;
+    }
+
+    int current = me->current;
+    if (current >= qpreps) {
+        return INVALID_STEP;
+    }
+
+    enum step result = me->preps[current++];
+    if (current >= qpreps) {
+        me->qpreps = 0;
+    } else {
+        me->current = current;
+    }
+
+    return result;
+}
+
+
+
 #define GOAL_1   -1
 #define GOAL_2   -2
 #define NO_WAY   -3
@@ -349,8 +349,6 @@ struct geometry * create_std_geometry(
     const int penalty_len);
 
 void destroy_geometry(struct geometry * restrict const me);
-
-
 
 struct state
 {
@@ -454,8 +452,6 @@ void bsf_gen(
     struct bsf_free_kicks * const me,
     const struct state * const state,
     const struct cycle_guard * const guard);
-
-
 
 
 
