@@ -2283,7 +2283,7 @@ int test_mcts_ai_unstep(void)
 
         const struct warn * warn = ai->get_warn(ai, 0);
         if (warn != NULL) {
-            info("ai->go returns %s\n", step_names[step]);
+            info("ai->go returns %s", step_names[step]);
             test_fail("Warning after ai->go() at step %u: %s (at %s:%d)",
                 qsteps, warn->msg, warn->file_name, warn->line_num);
         }
@@ -2295,7 +2295,7 @@ int test_mcts_ai_unstep(void)
         }
 
         int new_active = state->active;
-        info("do_step %s, active %d -> %d\n", step_names[step], old_active, new_active);
+        info("do_step %s, active %d -> %d", step_names[step], old_active, new_active);
         ++qsteps;
     }
 
@@ -2365,7 +2365,7 @@ int run_ai_go(const struct game_protocol * const protocol, const int qmoves)
                 step_names[step], i, status, ai->error);
         }
 
-        info("Move %d: %s\n", i, step_names[step]);
+        info("Move %d: %s", i, step_names[step]);
     }
 
     free_ctx();
@@ -2374,12 +2374,12 @@ int run_ai_go(const struct game_protocol * const protocol, const int qmoves)
 
 int debug_ai_go(void)
 {
-    return run_ai_go(&protocol_with_hang, 10);
+    return run_ai_go(&protocol_empty, 0);
 }
 
 int debug_simulate(void)
 {
-    return run_simulation(&protocol_with_hang, 1000);
+    return run_simulation(&protocol_empty, 0);
 }
 
 #endif
