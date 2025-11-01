@@ -171,7 +171,13 @@ struct geometry * create_std_geometry(
     const size_t board_map_sz = qpoints * QSTEPS * sizeof(uint32_t);
     const size_t straight_sz = qpoints * sizeof(enum step);
     const size_t dist_sz = qpoints * sizeof(uint32_t);
-    const size_t sizes[8] = { sizeof(struct geometry), board_map_sz, board_map_sz, (1 << QSTEPS) * QSTEPS, straight_sz, straight_sz, dist_sz, dist_sz };
+    const size_t sizes[8] = {
+        sizeof(struct geometry),
+        board_map_sz, board_map_sz,
+        (1 << QSTEPS) * QSTEPS,
+        straight_sz, straight_sz,
+        dist_sz, dist_sz
+    };
     void * ptrs[8];
     void * data = multialloc(8, sizes, ptrs, 256);
 
@@ -1316,65 +1322,24 @@ int test_history(void)
 
 int test_step12_overflow_error(void)
 {
-    struct geometry * geometry = create_std_geometry(21, 31, 6, 5);
-    if (!geometry) {
-        test_fail("create_std_geometry failed");
-    }
+    const struct game_protocol * const protocol = &protocol_step12_overflow_bug_example;
 
-    struct ai ai_storage;
-    const int status = init_mcts_ai(&ai_storage, geometry);
+    must_init_ctx(protocol);
+    struct ai * restrict const ai = ctx->ai;
+    const enum step * const steps = protocol->steps;
+    const int qsteps = protocol->qsteps;
+
+    int status = ai->do_steps(ai, qsteps, steps);
     if (status != 0) {
-        test_fail("init_mcts_ai failed, status=%d", status);
+        test_fail("Failed to apply %d moves, status %d, error: %s", qsteps, status, ai->error);
     }
 
-    enum step moves[] = {
-        NORTH_EAST, NORTH_EAST, NORTH_WEST,
-        SOUTH_WEST, SOUTH, NORTH_EAST, SOUTH,
-        NORTH_EAST, NORTH_EAST, WEST,
-        NORTH_EAST, NORTH_WEST, SOUTH, SOUTH,
-        NORTH_EAST, NORTH_EAST, WEST,
-        NORTH_EAST, SOUTH_EAST, SOUTH_WEST,
-        EAST, NORTH_EAST, NORTH_WEST,
-        NORTH, NORTH_WEST, SOUTH, SOUTH,
-        NORTH_EAST, NORTH_EAST, NORTH_EAST,
-        SOUTH_EAST, SOUTH_WEST, NORTH,
-        SOUTH_WEST, SOUTH, EAST,
-        SOUTH_WEST, WEST, NORTH,
-        SOUTH_WEST, NORTH_WEST, WEST,
-        SOUTH_WEST, SOUTH_EAST, NORTH_EAST,
-        SOUTH_EAST, EAST, EAST,
-        SOUTH_WEST, WEST, NORTH_WEST,
-        SOUTH_WEST, NORTH_WEST, NORTH_WEST,
-        SOUTH_WEST, SOUTH_EAST, NORTH,
-        SOUTH_EAST, SOUTH_WEST, NORTH_WEST,
-        SOUTH_WEST, SOUTH_EAST, NORTH,
-        SOUTH_EAST, EAST, NORTH,
-        SOUTH_EAST, NORTH_EAST, WEST,
-        NORTH_EAST, SOUTH_EAST, EAST,
-        SOUTH_WEST, SOUTH_WEST, NORTH,
-        SOUTH_WEST, SOUTH_EAST, NORTH_EAST,
-        SOUTH_EAST, SOUTH_WEST, NORTH,
-        SOUTH_WEST, SOUTH_EAST, NORTH_EAST,
-        NORTH_EAST, SOUTH_EAST, SOUTH_WEST, NORTH_WEST, SOUTH,
-        NORTH_EAST
-    };
-
-    const int num_moves = sizeof(moves) / sizeof(moves[0]);
-
-    for (int i = 0; i < num_moves; i++) {
-        const int ai_status = ai_storage.do_step(&ai_storage, moves[i]);
-        if (ai_status != 0) {
-            test_fail("AI rejected valid move %d with status %d", i + 1, ai_status);
-        }
-    }
-
-    const int invalid_status = ai_storage.do_step(&ai_storage, NORTH_EAST);
+    const int invalid_status = ai->do_step(ai, NORTH_EAST);
     if (invalid_status == 0) {
         test_fail("AI incorrectly accepted invalid NE move after penalty");
     }
 
-    ai_storage.free(&ai_storage);
-    destroy_geometry(geometry);
+    free_ctx();
     return 0;
 }
 
