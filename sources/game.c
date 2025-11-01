@@ -1343,4 +1343,101 @@ int test_step12_overflow_error(void)
     return 0;
 }
 
+int test_geometry_straight_dist(void)
+{
+    const int width = 15;
+    const int height = 23;
+    const int goal_width = 6;
+    const int free_kick_len = 5;
+
+    struct geometry * restrict const me = create_std_geometry(width, height, goal_width, free_kick_len);
+    if (me == NULL) {
+        test_fail("create_std_geometry(%d, %d, %d, %d) failed, errno = %d.",
+            width, height, goal_width, free_kick_len, errno);
+    }
+
+    const int qpoints = width * height;
+    const int32_t * const free_kicks = me->free_kicks;
+
+    struct test_data {
+        int player;
+        const enum step * straight;
+        const uint32_t * dist;
+        int32_t own_goal;
+        int32_t target_goal;
+    };
+
+    const struct test_data test_cases[] = {
+        { 1, me->straight_free_kick1, me->dist_goal1, GOAL_2, GOAL_1 },
+        { 2, me->straight_free_kick2, me->dist_goal2, GOAL_1, GOAL_2 },
+    };
+
+    for (int idata = 0; idata < ARRAY_LEN(test_cases); ++idata) {
+        const struct test_data * const data = &test_cases[idata];
+        const int player = data->player;
+        const enum step * const straight = data->straight;
+        const uint32_t * const dist = data->dist;
+        const int32_t own_goal = data->own_goal;
+        const int32_t target_goal = data->target_goal;
+
+        for (int32_t offset = 0; offset < qpoints; ++offset) {
+            const int32_t x = offset % width;
+            const int32_t y = offset / width;
+
+            /* Find best direction for player */
+            const enum step best_step = straight[offset];
+            const int32_t destination = free_kicks[offset * QSTEPS + best_step];
+
+            if (destination == own_goal) {
+                test_fail("straight%d[%d] (%d, %d) = %s leads to own goal",
+                    player, offset, x, y, step_names[best_step]);
+            }
+
+            if (destination == NO_WAY) {
+                test_fail("straight%d[%d] (%d, %d) = %s is blocked (NO_WAY)",
+                    player, offset, x, y, step_names[best_step]);
+            }
+
+            /* Find distance to target goal */
+            if (destination == target_goal) {
+                const uint32_t d = dist[offset];
+                if (d > free_kick_len) {
+                    test_fail("straight%d[%d] (%d, %d) = %s leads to goal, but dist = %u > free_kick_len %d",
+                        player, offset, x, y, step_names[best_step], d, free_kick_len);
+                }
+                continue; /* Goal is the best, nothing to check */
+            }
+
+            const uint32_t min_dist = dist[destination];
+
+            /* Check all other directions don't have better distance */
+            for (enum step step = 0; step < QSTEPS; ++step) {
+                const int32_t target = free_kicks[offset * QSTEPS + step];
+
+                if (target == target_goal) {
+                    test_fail("straight%d[%d] (%d, %d) = %s doesn't lead to goal, but %s does",
+                        player, offset, x, y, step_names[best_step], step_names[step]);
+                }
+
+                if (target < 0) {
+                    continue; /* NO_WAY or goal */
+                }
+
+                if (target >= qpoints) {
+                    test_fail("free_kicks[%d] (%d, %d) [%s] = %d is out of bounds (qpoints = %d)",
+                        offset, x, y, step_names[step], target, qpoints);
+                }
+
+                if (dist[target] < min_dist) {
+                    test_fail("straight%d[%d] (%d, %d) = %s (dist=%u), but %s is closer (dist=%u)",
+                        player, offset, x, y, step_names[best_step], min_dist, step_names[step], dist[target]);
+                }
+            }
+        }
+    }
+
+    destroy_geometry(me);
+    return 0;
+}
+
 #endif
