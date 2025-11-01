@@ -105,7 +105,7 @@ union node_opts
         unsigned has_answers : 1;
         unsigned type : 2;
         unsigned step : 4;
-    } ;
+    };
     uint32_t u32;
 };
 
@@ -740,6 +740,7 @@ static struct node * alloc_node(
 
     result->opts.type = type;
     result->opts.step = step;
+    result->ball = NO_WAY;
     return result;
 }
 
@@ -1272,7 +1273,8 @@ static int calc_qanswers(
     struct bsf_free_kicks * bsf = me->bsf;
     bsf_gen(me->warns, bsf, state, &me->cycle_guard);
 
-    if (bsf->win != NULL) {
+    const struct bsf_serie * const win = bsf->win;
+    if (win != NULL) {
         log_line("Func %s - found win", __func__);
         struct node * restrict const win_node = alloc_node(me, NODE_M, INVALID_STEP);
         if (win_node == NULL) {
@@ -1284,6 +1286,8 @@ static int calc_qanswers(
             return ENOMEM;
         }
 
+        const int32_t ball = win->ball;
+
         pack_serie(pnode, bsf->win);
         pnode->opts.qanswers = 0;
         pnode->opts.has_answers = 1;
@@ -1293,12 +1297,14 @@ static int calc_qanswers(
         win_node->qgames = 1;
         win_node->opts.has_answers = 1;
         win_node->opts.qanswers = 1;
+        win_node->ball = ball;
         win_node->children[0] = pnode - me->nodes;
         mcts_log_node("mwin", me, win_node);
 
         node->children[0] = win_node - me->nodes;
         node->opts.qanswers = 1;
         node->opts.has_answers = 1;
+        node->ball = ball;
         return 0;
     }
 
@@ -1441,8 +1447,8 @@ static uint32_t simulate(
         ++qthink;
 
         struct node * restrict child = get_answer(me, node, answer);
-        const int is_terminal = child == zero;
-        if (is_terminal) {
+        const int is_leaf = child == zero;
+        if (is_leaf) {
             child = alloc_node(me, NODE_S, best_step(me, node, answer));
             if (child == NULL) {
                 log_line("Func %s - out of nodes", __func__);
@@ -1457,7 +1463,7 @@ static uint32_t simulate(
         log_line("Func %s - apply answer %d from node %d", __func__, answer, child - me->nodes);
         apply_answer(me, state, child);
 
-        if (is_terminal) {
+        if (is_leaf) {
             child->ball = state->ball;
         }
 
@@ -1479,8 +1485,8 @@ static uint32_t simulate(
             return qthink;
         }
 
-        if (is_terminal) {
-            log_line("Func %s - Find terminal node, break to rollout", __func__);
+        if (is_leaf) {
+            log_line("Func %s - Find leaf node, break to rollout", __func__);
             break;
         }
 
