@@ -61,12 +61,13 @@ void must_set_param(
 
 
 extern struct game_protocol protocol_empty;
-extern struct game_protocol protocol_step12_overflow_bug_example;
-extern struct game_protocol protocol_002255;
 extern struct game_protocol protocol_fastest_free_kick1;
+extern struct game_protocol protocol_fastest_free_kick2;
+extern struct game_protocol protocol_step12_overflow_bug_example;
 extern struct game_protocol protocol_with_hang;
 extern struct game_protocol protocol_000050;
 extern struct game_protocol protocol_000461;
+extern struct game_protocol protocol_002255;
 
 
 
@@ -93,12 +94,12 @@ int test_simulation(void);
 int test_random_ai_unstep(void);
 int test_mcts_ai_unstep(void);
 int test_cycle_detection(void);
+int test_preparation(void);
 int test_gen_complete_free_kicks(void);
 int test_gen_complete_free_kicks_win(void);
 int test_long_free_kick_to_win(void);
 int test_long_free_kick_to_loose(void);
 int test_gen_complete_free_kicks_long(void);
-int test_preparation(void);
 
 int debug_ai_go(void);
 int debug_simulate(void);
