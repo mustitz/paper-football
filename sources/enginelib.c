@@ -475,7 +475,7 @@ struct bsf_free_kicks * run_bsf(const struct game_protocol * const protocol, int
     const struct std_geom * g = &protocol->geom.std;
     struct geometry * restrict const geometry = create_std_geometry(g->width, g->height, g->goal_width, g->free_kick_len);
     if (geometry == NULL) {
-        test_fail("create_std_geometry(21, 31, 6, 5) fails, return value is NULL, errno is %d.", errno);
+        test_fail("create_std_geometry(%d, %d, %d, %d) fails, return value is NULL, errno is %d.", g->width, g->height, g->goal_width, g->free_kick_len, errno);
     }
 
     const uint32_t qpoints = geometry->qpoints;
@@ -488,9 +488,12 @@ struct bsf_free_kicks * run_bsf(const struct game_protocol * const protocol, int
     const int qsteps = protocol->qsteps - qsteps_back;
     for (int i=0; i<qsteps; ++i) {
         const enum step step = protocol->steps[i];
-        const int status = state_step(state, step);
-        if (status != 0) {
-            test_fail("State rejected step %s: move=%d; status=%d;", step_names[step], i, status);
+        const int ball = state_step(state, step);
+        if (ball == NO_WAY) {
+            test_fail("State rejected step %s: move=%d; ball=NO_WAY", step_names[step], i);
+        }
+        if (ball < 0) {
+            test_fail("Game had been finished unexpectedly: step %s: move=%d; ball=%d;", step_names[step], i, ball);
         }
     }
 
