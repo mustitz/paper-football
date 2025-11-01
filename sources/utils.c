@@ -35,10 +35,80 @@ void * multialloc(const size_t n, const size_t * const sizes,
     return result;
 }
 
+
+
 void debug_trap()
 {
     printf("Debug trap!\n");
 }
+
+#if ENABLE_LOGS
+
+static FILE * flog;
+
+static void close_flog(void)
+{
+    if (flog != NULL) {
+        fclose(flog);
+        flog = NULL;
+    }
+}
+
+void * get_flog(void)
+{
+    if (flog != NULL) {
+        return flog;
+    }
+
+    char filename[32];
+    for (int i = 1; i <= 9999; i++) {
+        snprintf(filename, sizeof(filename), "mcts-log-%04d.log", i);
+        FILE * f = fopen(filename, "r");
+        if (f != NULL) {
+            fclose(f);
+            continue;
+        }
+
+        flog = fopen(filename, "w");
+        if (flog != NULL) {
+            printf("MCTS log file: %s\n", filename);
+            atexit(close_flog);
+        }
+        return flog;
+    }
+
+    return NULL;
+}
+
+void log_line(const char * format, ...)
+{
+    FILE * f = get_flog();
+    if (f == NULL) {
+        return;
+    }
+
+    va_list args;
+    va_start(args, format);
+    vfprintf(f, format, args);
+    va_end(args);
+    fprintf(f, "\n");
+    fflush(f);
+}
+
+void log_text(const char * format, ...)
+{
+    FILE * f = get_flog();
+    if (f == NULL) {
+        return;
+    }
+
+    va_list args;
+    va_start(args, format);
+    vfprintf(f, format, args);
+    va_end(args);
+}
+
+#endif
 
 
 

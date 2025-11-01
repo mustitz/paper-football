@@ -12,44 +12,31 @@ struct exnode;
 struct bsf_serie;
 struct ball_move;
 
-#if ENABLE_MCTS_LOGS
-#define MCTS_LOG_FUNC static
-#define MCTS_LOG_BODY ;
-#else
-#define MCTS_LOG_FUNC static inline
-#define MCTS_LOG_BODY {}
-#endif
-
-MCTS_LOG_FUNC void mcts_log_text(
-    const char * fmt,
-    ...)
-MCTS_LOG_BODY
-
-MCTS_LOG_FUNC void mcts_log_node(
+LOG_FUNC void mcts_log_node(
     const char * name,
     const struct mcts_ai * const me,
     const struct node * const node)
-MCTS_LOG_BODY
+LOG_BODY
 
-MCTS_LOG_FUNC void mcts_log_exnode(
+LOG_FUNC void mcts_log_exnode(
     const char * name,
     const struct mcts_ai * const me,
     const struct exnode * const exnode)
-MCTS_LOG_BODY
+LOG_BODY
 
-MCTS_LOG_FUNC void mcts_log_ball_moves(
+LOG_FUNC void mcts_log_ball_moves(
     const struct ball_move * bm,
     int qballs)
-MCTS_LOG_BODY
+LOG_BODY
 
-MCTS_LOG_FUNC void mcts_log_snapshot(
+LOG_FUNC void mcts_log_snapshot(
     const struct mcts_ai * const me)
-MCTS_LOG_BODY
+LOG_BODY
 
-MCTS_LOG_FUNC void mcts_log_state(
+LOG_FUNC void mcts_log_state(
     const char * name,
     const struct state * const state)
-MCTS_LOG_BODY
+LOG_BODY
 
 #define ERROR_BUF_SZ   256
 
@@ -740,12 +727,12 @@ static struct node * alloc_node(
     enum step step)
 {
     if (me->used_nodes >= me->total_nodes) {
-        mcts_log_text("Func %s - overflow", __func__);
+        log_line("Func %s - overflow", __func__);
         ++me->bad_node_alloc;
         return NULL;
     }
 
-    mcts_log_text("Func %s - new %s-node %d", __func__, node_types[type], me->used_nodes);
+    log_line("Func %s - new %s-node %d", __func__, node_types[type], me->used_nodes);
     struct node * restrict const result = me->nodes + me->used_nodes;
     ++me->good_node_alloc;
     ++me->used_nodes;
@@ -936,12 +923,12 @@ int select_answer(
     const struct node * const node,
     int qanswers)
 {
-    mcts_log_text("Func %s - enter", __func__);
+    log_line("Func %s - enter", __func__);
     mcts_log_node("  node", me, node);
 
     /* Only one answer - return it */
     if (qanswers == 1) {
-        mcts_log_text("  only one answer, return 0");
+        log_line("  only one answer, return 0");
         return 0;
     }
 
@@ -952,7 +939,7 @@ int select_answer(
     const int qgames = node->qgames;
     if (qgames <= 0) {
         int result = rand() % qanswers;
-        mcts_log_text("  clean paren node (free kick) return random %d", result);
+        log_line("  clean paren node (free kick) return random %d", result);
         return result;
     }
 
@@ -962,7 +949,7 @@ int select_answer(
     for (int answer = 0; answer < qanswers; ++answer) {
         const struct node * const child = get_answer(me, node, answer);
         if (child == NULL) {
-            mcts_log_text("  child %d: NULL", answer);
+            log_line("  child %d: NULL", answer);
             continue;
         }
 
@@ -972,7 +959,7 @@ int select_answer(
 
         if (qgames == 0) {
             /* Unexplored node - prioritize it */
-            mcts_log_text("  child %d (node %d): unexplored, return %d", answer, ichild, answer);
+            log_line("  child %d (node %d): unexplored, return %d", answer, ichild, answer);
             return answer;
         }
 
@@ -980,7 +967,7 @@ int select_answer(
         const float investigation = sqrt(log_total / qgames);
         const float weight = ev + me->C * investigation;
 
-        mcts_log_text("  child %d (node %d): ev=%.4f qgames=%.0f weight=%.4f", answer, ichild, ev, qgames, weight);
+        log_line("  child %d (node %d): ev=%.4f qgames=%.0f weight=%.4f", answer, ichild, ev, qgames, weight);
 
         if (weight >= best_weight) {
             if (weight != best_weight) {
@@ -993,13 +980,13 @@ int select_answer(
 
     if (qbest == 0) {
         /* No valid answers found - return first */
-        mcts_log_text("  no valid answers, return 0");
+        log_line("  no valid answers, return 0");
         return 0;
     }
 
     const int index = qbest == 1 ? 0 : rand() % qbest;
     const int result = best_answers[index];
-    mcts_log_text("  return %d from qbest=%d", result, qbest);
+    log_line("  return %d from qbest=%d", result, qbest);
     return result;
 }
 
@@ -1047,7 +1034,7 @@ static void apply_answer(
     /* For regular steps */
     if (node->opts.type == NODE_S) {
         enum step step = node->opts.step;
-        mcts_log_text("Step %s", step_names[step]);
+        log_line("Step %s", step_names[step]);
         state_step(state, step);
         return;
     }
@@ -1065,7 +1052,7 @@ static void apply_answer(
 
         for (int i = 0; i < qsteps; ++i) {
             enum step step = steps[i];
-            mcts_log_text("Step %s", step_names[step]);
+            log_line("Step %s", step_names[step]);
             state_step(state, step);
         }
     }
@@ -1217,19 +1204,19 @@ static int bsf_ball_move(
     const int count = bm->count;
     const struct bsf_serie * const * const sorted = bm->series;
 
-    mcts_log_text("Func %s - node=%d index=%d ball=%d count=%d", __func__, node - me->nodes, index, ball, count);
+    log_line("Func %s - node=%d index=%d ball=%d count=%d", __func__, node - me->nodes, index, ball, count);
     mcts_log_node("node", me, node);
 
     const int max_count = 1 << QANSWERS_BITS;
     if (count < 0 || count >= max_count) {
         /* WARN */
-        mcts_log_text("  count out of range");
+        log_line("  count out of range");
         return EFAULT;
     }
 
     int status = alloc_answers(me, node, count, NODE_P);
     if (status != 0) {
-        mcts_log_text("  alloc_answers failed");
+        log_line("  alloc_answers failed");
         return ENOMEM;
     }
 
@@ -1237,13 +1224,13 @@ static int bsf_ball_move(
         struct node * restrict const pnode = get_answer(me, node, i);
         if (pnode == NULL) {
             /* WARN */
-            mcts_log_text("  pnode %d is NULL", i);
+            log_line("  pnode %d is NULL", i);
             return EFAULT;
         }
 
         pack_serie(pnode, sorted[i]);
 
-        mcts_log_text("");
+        log_line("");
         mcts_log_node("pnode", me, pnode);
     }
 
@@ -1286,7 +1273,7 @@ static int calc_qanswers(
     bsf_gen(me->warns, bsf, state, &me->cycle_guard);
 
     if (bsf->win != NULL) {
-        mcts_log_text("Func %s - found win", __func__);
+        log_line("Func %s - found win", __func__);
         struct node * restrict const win_node = alloc_node(me, NODE_M, INVALID_STEP);
         if (win_node == NULL) {
             return ENOMEM;
@@ -1315,7 +1302,7 @@ static int calc_qanswers(
         return 0;
     }
 
-    mcts_log_text("Func %s - found %d series", __func__, bsf->qseries);
+    log_line("Func %s - found %d series", __func__, bsf->qseries);
 
     const int qseries = bsf->qseries;
     if (qseries == 0) {
@@ -1345,11 +1332,11 @@ static int calc_qanswers(
 
     const int status = alloc_answers(me, node, qballs, NODE_M);
     if (status != 0) {
-        mcts_log_text("Func %s - alloc_answers failed with code %d", __func__, status);
+        log_line("Func %s - alloc_answers failed with code %d", __func__, status);
         return status;
     }
 
-    mcts_log_text("");
+    log_line("");
     mcts_log_node("children", me, node);
 
     const uint32_t * const dists = state->active == 1
@@ -1391,7 +1378,7 @@ static int calc_qanswers(
 
     /* Create nodes in sorted order */
     for (int i=0; i<qballs; ++i) {
-        mcts_log_text("Func %s - get_answer %d for node %d", __func__, i, node - me->nodes);
+        log_line("Func %s - get_answer %d for node %d", __func__, i, node - me->nodes);
         struct node * restrict const bnode = get_answer(me, node, i);
         if (bnode == NULL) {
             /* WARN */
@@ -1431,7 +1418,7 @@ static uint32_t simulate(
 
 
     for (;;) {
-        mcts_log_text("\n\n-------- new simulation iteration ---------------------\n");
+        log_line("\n\n-------- new simulation iteration ---------------------\n");
         mcts_log_state("current", state);
         mcts_log_node("current", me, node);
 
@@ -1444,13 +1431,13 @@ static uint32_t simulate(
 
         int qanswers = node->opts.qanswers;
         if (qanswers == 0) {
-            mcts_log_text("Func %s - no answers available, active=%d", __func__, state->active);
+            log_line("Func %s - no answers available, active=%d", __func__, state->active);
             update_history(me, state->active != 1 ? +1 : -1);
             return qthink;
         }
 
         int answer = select_answer(me, node, qanswers);
-        mcts_log_text("<-- select_answer: result=%d from qanswers=%d\n", answer, qanswers);
+        log_line("<-- select_answer: result=%d from qanswers=%d\n", answer, qanswers);
         ++qthink;
 
         struct node * restrict child = get_answer(me, node, answer);
@@ -1458,16 +1445,16 @@ static uint32_t simulate(
         if (is_terminal) {
             child = alloc_node(me, NODE_S, best_step(me, node, answer));
             if (child == NULL) {
-                mcts_log_text("Func %s - out of nodes", __func__);
+                log_line("Func %s - out of nodes", __func__);
                 return 0;
             }
             node->children[answer] = child - me->nodes;
-            mcts_log_text("Func %s - allocated new child, index=%d", __func__, child - me->nodes);
+            log_line("Func %s - allocated new child, index=%d", __func__, child - me->nodes);
         } else {
-            mcts_log_text("Func %s - using existing child, index=%d", __func__, child - me->nodes);
+            log_line("Func %s - using existing child, index=%d", __func__, child - me->nodes);
         }
 
-        mcts_log_text("Func %s - apply answer %d from node %d", __func__, answer, child - me->nodes);
+        log_line("Func %s - apply answer %d from node %d", __func__, answer, child - me->nodes);
         apply_answer(me, state, child);
 
         if (is_terminal) {
@@ -1478,39 +1465,39 @@ static uint32_t simulate(
         status = state_status(state);
 
         add_history(me, child, active);
-        mcts_log_text("Func %s - push node %d to history, active=%d", __func__, child - me->nodes, active);
+        log_line("Func %s - push node %d to history, active=%d", __func__, child - me->nodes, active);
 
         if (status == WIN_1) {
-            mcts_log_text("Func %s - WIN_1 detected", __func__);
+            log_line("Func %s - WIN_1 detected", __func__);
             update_history(me, +1);
             return qthink;
         }
 
         if (status == WIN_2) {
-            mcts_log_text("Func %s - WIN_2 detected", __func__);
+            log_line("Func %s - WIN_2 detected", __func__);
             update_history(me, -1);
             return qthink;
         }
 
         if (is_terminal) {
-            mcts_log_text("Func %s - Find terminal node, break to rollout", __func__);
+            log_line("Func %s - Find terminal node, break to rollout", __func__);
             break;
         }
 
         node = child;
-        mcts_log_text("iteration done");
+        log_line("iteration done");
     }
 
-    mcts_log_text("\n\n------------- rollout ----------------------------\n");
+    log_line("\n\n------------- rollout ----------------------------\n");
     mcts_log_state("last", state);
     mcts_log_node("last", me, node);
     const int32_t score = rollout(state, me->max_depth, &qthink);
-    mcts_log_text("Rollout %s%d", score > 0 ? "+" : "-", score > 0 ? score : -score);
+    log_line("Rollout %s%d", score > 0 ? "+" : "-", score > 0 ? score : -score);
 
     update_history(me, score);
-    mcts_log_text("\n\n------------------ snapshot ----------------------\n");
+    log_line("\n\n------------------ snapshot ----------------------\n");
     mcts_log_snapshot(me);
-    mcts_log_text("\n\n-------- simulation finished ---------------------\n");
+    log_line("\n\n-------- simulation finished ---------------------\n");
     return qthink;
 }
 
@@ -1530,7 +1517,7 @@ static enum step best_preparation(
     const struct node * const mnode)
 {
     int ibest = best_answer(me, mnode);
-    mcts_log_text("Func %s - ibest = %d", __func__, ibest);
+    log_line("Func %s - ibest = %d", __func__, ibest);
 
     const struct node * const pnode = get_answer(me, mnode, ibest);
     if (pnode == NULL) {
@@ -1569,7 +1556,7 @@ static enum step ai_go(
     struct preparation * restrict const prep = &me->prep;
     enum step prepared = preparation_peek(prep);
     if (prepared != INVALID_STEP) {
-        mcts_log_text("Func %s - return preparaion %s", __func__, step_names[prepared]);
+        log_line("Func %s - return preparaion %s", __func__, step_names[prepared]);
         return prepared;
     }
 
@@ -1625,13 +1612,13 @@ static enum step ai_go(
         qthink += delta_think;
         ++root->qgames;
 
-        mcts_log_text("Func %s - qgames=%d qthink=%d of %d", __func__, root->qgames, qthink, me->qthink);
+        log_line("Func %s - qgames=%d qthink=%d of %d", __func__, root->qgames, qthink, me->qthink);
         if (qthink >= me->qthink) {
             break;
         }
     }
 
-    mcts_log_text("\n\n======== ai=>go, choosing answer =================\n");
+    log_line("\n\n======== ai=>go, choosing answer =================\n");
 
     mcts_log_node("root", me, root);
     for (int i=0; i<root->opts.qanswers; ++i) {
@@ -1639,18 +1626,18 @@ static enum step ai_go(
         if (child != NULL) {
             mcts_log_node("child", me, child);
         } else {
-            mcts_log_text("Func %s answer[%d] is NULL", __func__, i);
+            log_line("Func %s answer[%d] is NULL", __func__, i);
         }
     }
 
     int best = best_answer(me, root);
 
-    mcts_log_text("Func %s best_answer=%d", __func__, best);
+    log_line("Func %s best_answer=%d", __func__, best);
 
     const struct node * const  best_node = get_answer(me, root, best);
     if (best_node == NULL) {
         /* WARN */
-        mcts_log_text("Func %s best node is null for answer %d", __func__, best);
+        log_line("Func %s best node is null for answer %d", __func__, best);
         return INVALID_STEP;
     }
     mcts_log_node("best", me, best_node);
@@ -1666,7 +1653,7 @@ static enum step ai_go(
             result = best_preparation(me, best_node);
             break;
         default:
-            mcts_log_text("Func %s unexpected best node type!", __func__);
+            log_line("Func %s unexpected best node type!", __func__);
             return INVALID_STEP;
     }
 
@@ -1734,6 +1721,245 @@ static enum step ai_go(
 
     return result;
 }
+
+
+
+#if ENABLE_LOGS
+
+void mcts_log_node(
+    const char * title,
+    const struct mcts_ai * const me,
+    const struct node * const node)
+{
+    FILE * f = get_flog();
+    if (f == NULL) {
+        return;
+    }
+
+    int indent = 0;
+    while (*title == ' ') {
+        ++title;
+        ++indent;
+    }
+
+    const int index = node - me->nodes;
+    const int type = node->opts.type;
+    const int step = node->opts.step;
+    const int qsteps = node->opts.qsteps;
+    const int qchildren = type != NODE_P ? QSTEPS : QSTEPS - 1;
+
+    fprintf(f, "%*sNode #%d <%s> score=%d qgames=%d\n",
+        indent, "", index, title, node->score, node->qgames);
+
+    fprintf(f, "%*sopts:", indent+2, "");
+    fprintf(f, " type=%s", node_types[type]);
+    if (step >= 0 && step < QSTEPS) {
+        fprintf(f, " step=%s", step_names[step]);
+    }
+    if (node->opts.has_answers) {
+        fprintf(f, " qanswers=%d", node->opts.qanswers);
+    }
+    fprintf(f, " qsteps=%d", qsteps);
+    fprintf(f, " steps=%02X", node->opts.steps);
+    fprintf(f, "\n");
+
+    fprintf(f, "%*schildren:", indent+2, "");
+    for (int i=0; i<qchildren; ++i) {
+        fprintf(f, " %d", node->children[i]);
+    }
+    fprintf(f, "\n");
+
+    if (type == NODE_P) {
+        enum step path[qsteps];
+        unpack_serie(node, path);
+        fprintf(f, "%*spath:", indent+2, "");
+        for (int i=0; i<qsteps; ++i) {
+            fprintf(f, " %s", step_names[path[i]]);
+        }
+        fprintf(f, "\n");
+    }
+    fprintf(f, "\n");
+
+    fflush(f);
+}
+
+void mcts_log_exnode(
+    const char * title,
+    const struct mcts_ai * const me,
+    const struct exnode * const exnode)
+{
+    FILE * f = get_flog();
+    if (f == NULL) {
+        return;
+    }
+
+    int indent = 0;
+    while (*title == ' ') {
+        ++title;
+        ++indent;
+    }
+
+    const int index = (const struct node*) exnode - me->nodes;
+    fprintf(f, "%*sExNode #%d <%s>", indent, "", index, title);
+
+    for (int i=0; i<EXNODE_CHILDREN; ++i) {
+        fprintf(f, " %d", exnode->children[i]);
+    }
+    fprintf(f, "\n");
+
+    fflush(f);
+}
+
+void mcts_log_serie(int index, const struct bsf_serie * serie)
+{
+    FILE * f = get_flog();
+    if (f == NULL) {
+        return;
+    }
+
+    fprintf(f, "    [%d] -", index);
+    for (int i = 0; i < serie->qsteps; ++i) {
+        fprintf(f, " %s", step_names[serie->steps[i]]);
+    }
+    fprintf(f, "\n");
+    fflush(f);
+}
+
+void mcts_log_ball_moves(const struct ball_move * ball_moves, int qballs)
+{
+    log_line("BallMoves - qballs=%d (sorted by distance)", qballs);
+    for (int i = 0; i < qballs; ++i) {
+        const struct ball_move * bm = &ball_moves[i];
+        log_line("  [%d] - ball=%d distance=%u count=%d", i, bm->ball, bm->distance, bm->count);
+        for (int j = 0; j < bm->count; ++j) {
+            mcts_log_serie(j, bm->series[j]);
+        }
+    }
+    log_line("");
+}
+
+void snode_print_steps(const struct node * const snode)
+{
+    FILE * f = get_flog();
+    if (f == NULL) {
+        return;
+    }
+
+    steps_t steps = snode->opts.steps;
+    if (steps == 0) {
+        fprintf(f, " steps=0");
+        return;
+    }
+
+    fprintf(f, " ");
+    const enum step step = extract_step(&steps);
+    fprintf(f, "%s", step_names[step]);
+    while (steps != 0) {
+        const enum step step = extract_step(&steps);
+        fprintf(f, "|%s", step_names[step]);
+    }
+}
+
+void mnode_print_ball(
+    FILE * f,
+    const struct node * const mnode)
+{
+    fprintf(f, " ball=%d", mnode->ball);
+}
+
+void pnode_print_path(
+    FILE * f,
+    const struct node * const pnode)
+{
+    const int qsteps = pnode->opts.qsteps;
+    enum step path[qsteps];
+    unpack_serie(pnode, path);
+    for (int i = 0; i < qsteps; ++i) {
+        fprintf(f, " %s", step_names[path[i]]);
+    }
+}
+
+void snapshot_item(const struct mcts_ai * const me, const struct node * const node, int depth)
+{
+    if (node == NULL || node == me->nodes) {
+        return;
+    }
+
+    FILE * f = get_flog();
+    if (f == NULL) {
+        return;
+    }
+
+    const int inode = node - me->nodes;
+
+    const int type = node->opts.type;
+    fprintf(f, "%*snode-%s #%d: ", 2*depth, "", node_types[type], inode);
+    fprintf(f, "score=%d qgames=%d", node->score, node->qgames);
+
+    switch (type) {
+        case NODE_S:
+            snode_print_steps(node);
+            break;
+        case NODE_M:
+            mnode_print_ball(f, node);
+            break;
+        case NODE_P:
+            pnode_print_path(f, node);
+            break;
+        case NODE_T:
+            break;
+    }
+
+    fprintf(f, "\n");
+
+    const int qanswers = node->opts.qanswers;
+    for (int i = 0; i < qanswers; ++i) {
+        const struct node * child = get_answer(me, node, i);
+        if (child != NULL && child != me->nodes) {
+            snapshot_item(me, child, depth + 1);
+        }
+    }
+
+    fflush(f);
+}
+
+void mcts_log_snapshot(const struct mcts_ai * const me)
+{
+    FILE * f = get_flog();
+    if (f == NULL) {
+        return;
+    }
+
+    const struct node * const root = me->nodes + 1;
+    snapshot_item(me, root, 0);
+}
+
+void mcts_log_state(const char * title, const struct state * const state)
+{
+    FILE * f = get_flog();
+    if (f == NULL) {
+        return;
+    }
+
+    fprintf(f, "State <%s>: active=%d ball=%d", title, state->active, state->ball);
+
+    if (state->step1 != INVALID_STEP) {
+        fprintf(f, " step1=%s", step_names[state->step1]);
+    }
+
+    if (state->step2 != INVALID_STEP) {
+        fprintf(f, " step2=%s", step_names[state->step2]);
+    }
+
+    if (state->step12 != 0) {
+        fprintf(f, " step12=%016llX", state->step12);
+    }
+
+    fprintf(f, "\n");
+    fflush(f);
+}
+
+#endif
 
 
 
@@ -2018,7 +2244,7 @@ static int run_simulation(const struct game_protocol * const protocol, int qsimu
 
     root->qgames = 1;
     for (int i=0; i<qsimulations; ++i) {
-        mcts_log_text("\nSimulation %d", i);
+        log_line("\nSimulation %d", i);
         simulate(me, root);
         ++root->qgames;
     }
@@ -2154,282 +2380,6 @@ int debug_ai_go(void)
 int debug_simulate(void)
 {
     return run_simulation(&protocol_with_hang, 1000);
-}
-
-#endif
-
-#if ENABLE_MCTS_LOGS
-
-FILE * flog;
-
-static void close_flog(void)
-{
-    if (flog != NULL) {
-        fclose(flog);
-        flog = NULL;
-    }
-}
-
-static void init_flog(void)
-{
-    if (flog != NULL) {
-        return;
-    }
-
-    char filename[32];
-    for (int i = 1; i <= 9999; i++) {
-        snprintf(filename, sizeof(filename), "mcts-log-%04d.log", i);
-        FILE * f = fopen(filename, "r");
-        if (f != NULL) {
-            fclose(f);
-            continue;
-        }
-
-        flog = fopen(filename, "w");
-        if (flog != NULL) {
-            printf("MCTS log file: %s\n", filename);
-            atexit(close_flog);
-        }
-        return;
-    }
-}
-
-static void mcts_log_text(const char * format, ...)
-{
-    init_flog();
-    if (flog == NULL) {
-        return;
-    }
-
-    va_list args;
-    va_start(args, format);
-    vfprintf(flog, format, args);
-    va_end(args);
-    fprintf(flog, "\n");
-    fflush(flog);
-}
-
-static void mcts_log_node(
-    const char * title,
-    const struct mcts_ai * const me,
-    const struct node * const node)
-{
-    init_flog();
-    if (flog == NULL) {
-        return;
-    }
-
-    int indent = 0;
-    while (*title == ' ') {
-        ++title;
-        ++indent;
-    }
-
-    const int index = node - me->nodes;
-    const int type = node->opts.type;
-    const int step = node->opts.step;
-    const int qsteps = node->opts.qsteps;
-    const int qchildren = type != NODE_P ? QSTEPS : QSTEPS - 1;
-
-    fprintf(flog, "%*sNode #%d <%s> score=%d qgames=%d\n",
-        indent, "", index, title, node->score, node->qgames);
-
-    fprintf(flog, "%*sopts:", indent+2, "");
-    fprintf(flog, " type=%s", node_types[type]);
-    if (step >= 0 && step < QSTEPS) {
-        fprintf(flog, " step=%s", step_names[step]);
-    }
-    if (node->opts.has_answers) {
-        fprintf(flog, " qanswers=%d", node->opts.qanswers);
-    }
-    fprintf(flog, " qsteps=%d", qsteps);
-    fprintf(flog, " steps=%02X", node->opts.steps);
-    fprintf(flog, "\n");
-
-    fprintf(flog, "%*schildren:", indent+2, "");
-    for (int i=0; i<qchildren; ++i) {
-        fprintf(flog, " %d", node->children[i]);
-    }
-    fprintf(flog, "\n");
-
-    if (type == NODE_P) {
-        enum step path[qsteps];
-        unpack_serie(node, path);
-        fprintf(flog, "%*spath:", indent+2, "");
-        for (int i=0; i<qsteps; ++i) {
-            fprintf(flog, " %s", step_names[path[i]]);
-        }
-        fprintf(flog, "\n");
-    }
-    fprintf(flog, "\n");
-
-    fflush(flog);
-}
-
-static void mcts_log_exnode(
-    const char * title,
-    const struct mcts_ai * const me,
-    const struct exnode * const exnode)
-{
-    init_flog();
-    if (flog == NULL) {
-        return;
-    }
-
-    int indent = 0;
-    while (*title == ' ') {
-        ++title;
-        ++indent;
-    }
-
-    const int index = (const struct node*) exnode - me->nodes;
-    fprintf(flog, "%*sExNode #%d <%s>", indent, "", index, title);
-
-    for (int i=0; i<EXNODE_CHILDREN; ++i) {
-        fprintf(flog, " %d", exnode->children[i]);
-    }
-    fprintf(flog, "\n");
-
-    fflush(flog);
-}
-static void mcts_log_serie(int index, const struct bsf_serie * serie)
-{
-    init_flog();
-    if (flog == NULL) {
-        return;
-    }
-
-    fprintf(flog, "    [%d] -", index);
-    for (int i = 0; i < serie->qsteps; ++i) {
-        fprintf(flog, " %s", step_names[serie->steps[i]]);
-    }
-    fprintf(flog, "\n");
-    fflush(flog);
-}
-
-static void mcts_log_ball_moves(const struct ball_move * ball_moves, int qballs)
-{
-    mcts_log_text("BallMoves - qballs=%d (sorted by distance)", qballs);
-    for (int i = 0; i < qballs; ++i) {
-        const struct ball_move * bm = &ball_moves[i];
-        mcts_log_text("  [%d] - ball=%d distance=%u count=%d", i, bm->ball, bm->distance, bm->count);
-        for (int j = 0; j < bm->count; ++j) {
-            mcts_log_serie(j, bm->series[j]);
-        }
-    }
-    mcts_log_text("");
-}
-
-static void snode_print_steps(const struct node * const snode)
-{
-    steps_t steps = snode->opts.steps;
-    if (steps == 0) {
-        fprintf(flog, " steps=0");
-        return;
-    }
-
-    fprintf(flog, " ");
-    const enum step step = extract_step(&steps);
-    fprintf(flog, "%s", step_names[step]);
-    while (steps != 0) {
-        const enum step step = extract_step(&steps);
-        fprintf(flog, "|%s", step_names[step]);
-    }
-}
-
-static void mnode_print_ball(const struct node * const mnode)
-{
-    fprintf(flog, " ball=%d", mnode->ball);
-}
-
-static void pnode_print_path(const struct node * const pnode)
-{
-    const int qsteps = pnode->opts.qsteps;
-    enum step path[qsteps];
-    unpack_serie(pnode, path);
-    for (int i = 0; i < qsteps; ++i) {
-        fprintf(flog, " %s", step_names[path[i]]);
-    }
-}
-
-static void snapshot_item(const struct mcts_ai * const me, const struct node * const node, int depth)
-{
-    if (node == NULL || node == me->nodes) {
-        return;
-    }
-
-    init_flog();
-    if (flog == NULL) {
-        return;
-    }
-
-    const int inode = node - me->nodes;
-
-    const int type = node->opts.type;
-    fprintf(flog, "%*snode-%s #%d: ", 2*depth, "", node_types[type], inode);
-    fprintf(flog, "score=%d qgames=%d", node->score, node->qgames);
-
-    switch (type) {
-        case NODE_S:
-            snode_print_steps(node);
-            break;
-        case NODE_M:
-            mnode_print_ball(node);
-            break;
-        case NODE_P:
-            pnode_print_path(node);
-            break;
-        case NODE_T:
-            break;
-    }
-
-    fprintf(flog, "\n");
-
-    const int qanswers = node->opts.qanswers;
-    for (int i = 0; i < qanswers; ++i) {
-        const struct node * child = get_answer(me, node, i);
-        if (child != NULL && child != me->nodes) {
-            snapshot_item(me, child, depth + 1);
-        }
-    }
-
-    fflush(flog);
-}
-
-static void mcts_log_snapshot(const struct mcts_ai * const me)
-{
-    init_flog();
-    if (flog == NULL) {
-        return;
-    }
-
-    const struct node * const root = me->nodes + 1;
-    snapshot_item(me, root, 0);
-}
-
-static void mcts_log_state(const char * title, const struct state * const state)
-{
-    init_flog();
-    if (flog == NULL) {
-        return;
-    }
-
-    fprintf(flog, "State <%s>: active=%d ball=%d", title, state->active, state->ball);
-
-    if (state->step1 != INVALID_STEP) {
-        fprintf(flog, " step1=%s", step_names[state->step1]);
-    }
-
-    if (state->step2 != INVALID_STEP) {
-        fprintf(flog, " step2=%s", step_names[state->step2]);
-    }
-
-    if (state->step12 != 0) {
-        fprintf(flog, " step12=%016llX", state->step12);
-    }
-
-    fprintf(flog, "\n");
-    fflush(flog);
 }
 
 #endif
