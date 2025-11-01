@@ -49,8 +49,6 @@ static const  float           def_C =                  1.4;
 
 #define EXNODE_CHILDREN (QSTEPS + 4)
 
-#define MAX_QANSWERS (1 << QANSWERS_BITS)
-
 struct mcts_ai
 {
     struct state * state;
@@ -102,7 +100,6 @@ union node_opts
         unsigned qanswers : QANSWERS_BITS;
         unsigned qsteps : QSTEP_BITS;
         unsigned steps : QSTEPS;
-        unsigned has_answers : 1;
         unsigned type : 2;
         unsigned step : 4;
     };
@@ -179,9 +176,10 @@ static void calc_cache(
     struct mcts_ai * restrict const me,
     const uint32_t qthink)
 {
-    unsigned int cache_sz = 4096 + qthink;
-    if (cache_sz < MIN_CACHE_SZ) {
-        cache_sz = MIN_CACHE_SZ;
+    unsigned int cache_sz = qthink;
+    unsigned int min_recommended = 1024 * sizeof(struct node);
+    if (cache_sz < min_recommended) {
+        cache_sz = min_recommended;
     }
 
     init_cache(me, cache_sz);
@@ -740,6 +738,7 @@ static struct node * alloc_node(
 
     result->opts.type = type;
     result->opts.step = step;
+    result->opts.qanswers = BAD_QANSWERS;
     result->ball = NO_WAY;
     return result;
 }
@@ -1208,8 +1207,7 @@ static int bsf_ball_move(
     log_line("Func %s - node=%d index=%d ball=%d count=%d", __func__, node - me->nodes, index, ball, count);
     mcts_log_node("node", me, node);
 
-    const int max_count = 1 << QANSWERS_BITS;
-    if (count < 0 || count >= max_count) {
+    if (count < 0 || count >= MAX_QANSWERS) {
         /* WARN */
         log_line("  count out of range");
         return EFAULT;
@@ -1235,7 +1233,6 @@ static int bsf_ball_move(
         mcts_log_node("pnode", me, pnode);
     }
 
-    node->opts.has_answers = 1;
     node->opts.qanswers = count;
     node->ball = ball;
     return 0;
@@ -1257,7 +1254,7 @@ static int calc_qanswers(
     struct node * restrict const node,
     struct state * restrict const state)
 {
-    if (node->opts.has_answers) {
+    if (node->opts.qanswers != BAD_QANSWERS) {
         return 0;
     }
 
@@ -1265,7 +1262,6 @@ static int calc_qanswers(
     if (!is_free_kick) {
         steps_t steps = state_get_steps(state);
         node->opts.steps = steps;
-        node->opts.has_answers = 1;
         node->opts.qanswers = step_count(steps);
         return 0;
     }
@@ -1290,12 +1286,10 @@ static int calc_qanswers(
 
         pack_serie(pnode, bsf->win);
         pnode->opts.qanswers = 0;
-        pnode->opts.has_answers = 1;
         mcts_log_node("pwin", me, win_node);
 
         win_node->score = 2;
         win_node->qgames = 1;
-        win_node->opts.has_answers = 1;
         win_node->opts.qanswers = 1;
         win_node->ball = ball;
         win_node->children[0] = pnode - me->nodes;
@@ -1303,7 +1297,6 @@ static int calc_qanswers(
 
         node->children[0] = win_node - me->nodes;
         node->opts.qanswers = 1;
-        node->opts.has_answers = 1;
         node->ball = ball;
         return 0;
     }
@@ -1312,7 +1305,6 @@ static int calc_qanswers(
 
     const int qseries = bsf->qseries;
     if (qseries == 0) {
-        node->opts.has_answers = 1;
         node->opts.qanswers = 0;
         return 0;
     }
@@ -1382,6 +1374,11 @@ static int calc_qanswers(
 
     mcts_log_node("node", me, node);
 
+    if (qballs > MAX_QANSWERS) {
+        /* WARN */
+        qballs = MAX_QANSWERS;
+    }
+
     /* Create nodes in sorted order */
     for (int i=0; i<qballs; ++i) {
         log_line("Func %s - get_answer %d for node %d", __func__, i, node - me->nodes);
@@ -1398,7 +1395,6 @@ static int calc_qanswers(
     }
 
     mcts_log_node("result", me, node);
-    node->opts.has_answers = 1;
     node->opts.qanswers = qballs;
     return 0;
 }
@@ -1607,7 +1603,6 @@ static enum step ai_go(
     }
 
     root->qgames = 1;
-    root->opts.u32 = 0;
     uint32_t qthink = 0;
     for (;;) {
         const uint32_t delta_think = simulate(me, root);
