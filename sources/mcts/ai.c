@@ -841,7 +841,7 @@ static inline int extra_nodes(int qanswers)
     return (qanswers - QSTEPS + EXNODE_CHILDREN - 2) / (EXNODE_CHILDREN - 1);
 }
 
-static inline enum step best_step(
+static inline enum step get_step(
     const struct mcts_ai * const me,
     const struct node * const node,
     int answer)
@@ -1421,7 +1421,7 @@ static uint32_t simulate(
 
         log_line("Func %s - next child, index=%d", __func__, child - me->nodes);
         if (child == zero) {
-            last_step = best_step(me, node, answer);
+            last_step = get_step(me, node, answer);
             last_answer = answer;
             break;
         }
@@ -1549,6 +1549,8 @@ static enum step ai_go(
         return prepared;
     }
 
+    double start = clock();
+
     struct state * restrict state = me->state;
 
     steps_t steps = state_get_steps(state);
@@ -1558,20 +1560,10 @@ static enum step ai_go(
     }
 
     int multiple_ways = steps & (steps - 1);
-    if (multiple_ways) {
-        const int is_free_kick = is_free_kick_situation(state);
-        if (is_free_kick) {
-            steps = forbid_cycles(me, &me->cycle_guard, state, steps);
-            multiple_ways = steps & (steps - 1);
-        }
-    }
-
     if (!multiple_ways) {
         const enum step choice = first_step(steps);
         return choice;
     }
-
-    double start = clock();
 
     reset_cache(me);
 
@@ -1581,6 +1573,7 @@ static enum step ai_go(
         return INVALID_STEP;
     }
     zero->score = 2;
+
     zero->qgames = 1;
 
     struct node * restrict const root = alloc_node(me, NODE_T, INVALID_STEP);
@@ -1590,19 +1583,25 @@ static enum step ai_go(
     }
 
     root->qgames = 1;
-    uint32_t qthink = 0;
-    for (;;) {
-        const uint32_t delta_think = simulate(me, root);
-        if (delta_think == 0) {
-            break;
-        }
 
-        qthink += delta_think;
-        ++root->qgames;
+    const int qanswers = calc_answers(me, root, state);
 
-        log_line("Func %s - qgames=%d qthink=%d of %d", __func__, root->qgames, qthink, me->qthink);
-        if (qthink >= me->qthink) {
-            break;
+    if (qanswers > 1) {
+        uint32_t qthink = 0;
+
+        for (;;) {
+            const uint32_t delta_think = simulate(me, root);
+            if (delta_think == 0) {
+                break;
+            }
+
+            qthink += delta_think;
+            ++root->qgames;
+
+            log_line("Func %s - qgames=%d qthink=%d of %d", __func__, root->qgames, qthink, me->qthink);
+            if (qthink >= me->qthink) {
+                break;
+            }
         }
     }
 
@@ -1645,7 +1644,7 @@ static enum step ai_go(
             return INVALID_STEP;
     }
 
-    if (explanation) {
+    if (qanswers > 1 && explanation != NULL) {
         double finish = clock();
         explanation->time = (finish - start) / CLOCKS_PER_SEC;
 
@@ -1709,7 +1708,7 @@ static enum step ai_go(
             qsort(me->stats + 1, qstats - 1, sizeof(struct choice_stat), compare_stats);
         }
 
-        // Fill cache statistics in explanation
+        /* Fill cache statistics in explanation */
         explanation->cache.used = me->used_nodes;
         explanation->cache.total = me->total_nodes;
         explanation->cache.good_alloc = me->good_node_alloc;
