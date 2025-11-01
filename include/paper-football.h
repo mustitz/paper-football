@@ -145,8 +145,10 @@ enum step {
 };
 
 #define QANSWERS_BITS 8
-#define QSTEP_BITS 8
+#define MAX_QANSWERS ((1 << QANSWERS_BITS) - 1)
+#define BAD_QANSWERS MAX_QANSWERS
 
+#define QSTEP_BITS 8
 #define INVALID_STEP QSTEPS
 #define BACK(s) ((enum step)(((s)+4) & 0x07))
 

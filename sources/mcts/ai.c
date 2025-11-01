@@ -869,54 +869,17 @@ static inline struct node * get_answer(
     const int q0 = QSTEPS - extra;
 
     if (answer < q0) {
-        return me->nodes + node->children[answer];
+        const int inode = node->children[answer];
+        return me->nodes + inode;
     }
 
     const int block = (answer - q0) / EXNODE_CHILDREN;
     const int offset = (answer - q0) % EXNODE_CHILDREN;
     const int32_t eindex = node->children[q0 + block];
     const struct exnode * const exnode = (void *) (me->nodes + eindex);
-    return me->nodes + exnode->children[offset];
+    const int inode = exnode->children[offset];
+    return me->nodes + inode;
 }
-
-#if 0
-static inline void set_answer(
-    const struct mcts_ai * const me,
-    struct node * restrict const node,
-    int answer,
-    const struct node * const child)
-{
-    const int qanswers = node->opts.count;
-    if (answer < 0 || answer >= qanswers) {
-        /* WARN */
-        return;
-    }
-
-    const int ichild = child - me->nodes;
-
-    if (!node->opts.free_kick) {
-        if (answer >= QSTEPS) {
-            /* WARN */
-            return;
-        }
-        node->children[answer] = ichild;
-        return;
-    }
-
-    const int extra = extra_nodes(qanswers);
-    const int q0 = QSTEPS - extra;
-    if (answer < q0) {
-        node->children[answer] = ichild;
-        return;
-    }
-
-    const int block = (answer - q0) / EXNODE_CHILDREN;
-    const int offset = (answer - q0) % EXNODE_CHILDREN;
-    const int32_t eindex = node->children[q0 + block];
-    struct node * restrict const enode = me->nodes + eindex;
-    enode->children[offset] = ichild;
-}
-#endif
 
 int select_answer(
     const struct mcts_ai * const me,
@@ -1173,8 +1136,12 @@ static int best_answer(
 
     for (int i=0; i<qanswers; ++i) {
         const struct node * const child = get_answer(me, node, i);
-        int32_t qgames = child->qgames;
+        if (child == NULL) {
+            /* WARN */
+            continue;
+        }
 
+        int32_t qgames = child->qgames;
         if (qgames >= best_qgames) {
             if (qgames > best_qgames) {
                 qbest = 0;
@@ -1249,21 +1216,23 @@ static int compare_series(
     return (*a)->ball - (*b)->ball;
 }
 
-static int calc_qanswers(
+static int calc_answers(
     struct mcts_ai * restrict const me,
     struct node * restrict const node,
     struct state * restrict const state)
 {
-    if (node->opts.qanswers != BAD_QANSWERS) {
-        return 0;
+    const int qanswers = node->opts.qanswers;
+    if (qanswers != BAD_QANSWERS) {
+        return qanswers;
     }
 
     const int is_free_kick = is_free_kick_situation(state);
     if (!is_free_kick) {
         steps_t steps = state_get_steps(state);
         node->opts.steps = steps;
-        node->opts.qanswers = step_count(steps);
-        return 0;
+        const int qanswers = step_count(steps);
+        node->opts.qanswers = qanswers;
+        return qanswers;
     }
 
     struct bsf_free_kicks * bsf = me->bsf;
@@ -1274,12 +1243,12 @@ static int calc_qanswers(
         log_line("Func %s - found win", __func__);
         struct node * restrict const win_node = alloc_node(me, NODE_M, INVALID_STEP);
         if (win_node == NULL) {
-            return ENOMEM;
+            return BAD_QANSWERS;
         }
 
         struct node * restrict const pnode = alloc_node(me, NODE_P, INVALID_STEP);
         if (pnode == NULL) {
-            return ENOMEM;
+            return BAD_QANSWERS;
         }
 
         const int32_t ball = win->ball;
@@ -1296,9 +1265,9 @@ static int calc_qanswers(
         mcts_log_node("mwin", me, win_node);
 
         node->children[0] = win_node - me->nodes;
-        node->opts.qanswers = 1;
         node->ball = ball;
-        return 0;
+        node->opts.qanswers = 1;
+        return 1;
     }
 
     log_line("Func %s - found %d series", __func__, bsf->qseries);
@@ -1331,7 +1300,7 @@ static int calc_qanswers(
     const int status = alloc_answers(me, node, qballs, NODE_M);
     if (status != 0) {
         log_line("Func %s - alloc_answers failed with code %d", __func__, status);
-        return status;
+        return BAD_QANSWERS;
     }
 
     log_line("");
@@ -1385,18 +1354,18 @@ static int calc_qanswers(
         struct node * restrict const bnode = get_answer(me, node, i);
         if (bnode == NULL) {
             /* WARN */
-            return EFAULT;
+            return BAD_QANSWERS;
         }
         const int status = bsf_ball_move(me, bnode, ball_moves + i, i);
         if (status != 0) {
-            return status;
+            return BAD_QANSWERS;
         }
         mcts_log_node("ballmove", me, bnode);
     }
 
     mcts_log_node("result", me, node);
     node->opts.qanswers = qballs;
-    return 0;
+    return qballs;
 }
 
 static uint32_t simulate(
@@ -1418,6 +1387,8 @@ static uint32_t simulate(
     uint32_t qthink = 1;
     me->hist_ptr = me->hist;
 
+    enum step last_step = INVALID_STEP;
+    int last_answer = -1;
 
     for (;;) {
         log_line("\n\n-------- new simulation iteration ---------------------\n");
@@ -1426,15 +1397,14 @@ static uint32_t simulate(
 
         const int active = state->active;
 
-        int status = calc_qanswers(me, node, state);
-        if (status != 0) {
+        const int qanswers = calc_answers(me, node, state);
+        if (qanswers == BAD_QANSWERS) {
             return 0;
         }
 
-        int qanswers = node->opts.qanswers;
         if (qanswers == 0) {
             log_line("Func %s - no answers available, active=%d", __func__, state->active);
-            update_history(me, state->active != 1 ? +1 : -1);
+            update_history(me, active != 1 ? +1 : -1);
             return qthink;
         }
 
@@ -1443,31 +1413,27 @@ static uint32_t simulate(
         ++qthink;
 
         struct node * restrict child = get_answer(me, node, answer);
-        const int is_leaf = child == zero;
-        if (is_leaf) {
-            child = alloc_node(me, NODE_S, best_step(me, node, answer));
-            if (child == NULL) {
-                log_line("Func %s - out of nodes", __func__);
-                return 0;
-            }
-            node->children[answer] = child - me->nodes;
-            log_line("Func %s - allocated new child, index=%d", __func__, child - me->nodes);
-        } else {
-            log_line("Func %s - using existing child, index=%d", __func__, child - me->nodes);
+
+        if (child == NULL) {
+            /* WARN */
+            return 0;
         }
 
-        log_line("Func %s - apply answer %d from node %d", __func__, answer, child - me->nodes);
+        log_line("Func %s - next child, index=%d", __func__, child - me->nodes);
+        if (child == zero) {
+            last_step = best_step(me, node, answer);
+            last_answer = answer;
+            break;
+        }
+
         apply_answer(me, state, child);
-
-        if (is_leaf) {
-            child->ball = state->ball;
-        }
-
-        mcts_log_state("next", state);
-        status = state_status(state);
+        log_line("Func %s - apply answer %d from node %d", __func__, answer, child - me->nodes);
 
         add_history(me, child, active);
         log_line("Func %s - push node %d to history, active=%d", __func__, child - me->nodes, active);
+
+        mcts_log_state("next", state);
+        enum state_status status = state_status(state);
 
         if (status == WIN_1) {
             log_line("Func %s - WIN_1 detected", __func__);
@@ -1481,14 +1447,35 @@ static uint32_t simulate(
             return qthink;
         }
 
-        if (is_leaf) {
-            log_line("Func %s - Find leaf node, break to rollout", __func__);
-            break;
-        }
-
         node = child;
         log_line("iteration done");
     }
+
+    if (last_step == INVALID_STEP) {
+        /* WARN */
+        return 0;
+    }
+
+    if (last_answer < 0) {
+        /* WARN */
+        return 0;
+    }
+
+    const int old_active = state->active;
+    const int new_ball = state_step(state, last_step);
+
+    struct node * restrict const child = alloc_node(me, NODE_S, last_step);
+    if (child == NULL) {
+        log_line("Func %s - out of nodes", __func__);
+        return 0;
+    }
+
+    child->ball = new_ball;
+    node->children[last_answer] = child - me->nodes;
+    log_line("Func %s - allocated new child, index=%d", __func__, child - me->nodes);
+
+    add_history(me, child, old_active);
+    log_line("Func %s - push node %d to history, active=%d", __func__, child - me->nodes, old_active);
 
     log_line("\n\n------------- rollout ----------------------------\n");
     mcts_log_state("last", state);
@@ -1667,6 +1654,11 @@ static enum step ai_go(
 
         for (int i=0; i<root->opts.qanswers; ++i) {
             const struct node * const child = get_answer(me, root, i);
+            if (child == NULL) {
+                /* WARN */
+                continue;
+            }
+
             const enum step step = child->opts.step;
             const int32_t qgames = child->qgames;
             const int32_t score = child->score;
@@ -1686,6 +1678,10 @@ static enum step ai_go(
             if (child->opts.type == NODE_M) {
                 const int ibest = best_answer(me, child);
                 const struct node * const pnode = get_answer(me, child, ibest);
+                if (pnode == NULL) {
+                    /* WARN */
+                    continue;
+                }
                 qsteps = pnode->opts.qsteps;
                 unpack_serie(pnode, explanation_steps);
             }
