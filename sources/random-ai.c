@@ -296,6 +296,7 @@ int init_random_ai(
     }
 
     init_history(&ai->history);
+    warns_init(&ai->warns);
 
     ai->reset = random_ai_reset;
     ai->do_step = random_ai_do_step;
@@ -306,6 +307,7 @@ int init_random_ai(
     ai->get_params = random_ai_get_params;
     ai->set_param = random_ai_set_param;
     ai->get_state = random_ai_get_state;
+    ai->get_warn = ai_get_warn;
     ai->free = free_random_ai;
 
     return 0;
