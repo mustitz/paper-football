@@ -13,9 +13,6 @@
 #define ARRAY_LEN(a) (sizeof(a)/(sizeof(a[0])))
 #define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
-#define MIN(a,b) ((a) < (b) ? (a) : (b))
-#define MAX(a,b) ((a) > (b) ? (a) : (b))
-
 static inline ptrdiff_t ptr_diff(const void * const a, const void * const b)
 {
     const char * const byte_ptr_a = a;

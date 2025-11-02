@@ -434,7 +434,18 @@ static void explain_step(
                 printf("    N/A");
             }
 
-            printf(" (ball %d)\n", ptr->ball);
+            const int ball = ptr->ball;
+            if (ball >= 0) {
+                printf(" (ball %d)\n", ball);
+            } else if (ball == GOAL_1) {
+                printf(" (ball GOAL_1)\n");
+            } else if (ball == GOAL_2) {
+                printf(" (ball GOAL_2)\n");
+            } else if (ball == NO_WAY) {
+                printf(" (ball N/A)\n");
+            } else {
+                printf(" (ball ??? %d)\n", ball);
+            }
         }
     }
 }
@@ -443,7 +454,7 @@ static void ai_go(
     struct cmd_parser * restrict const me,
     const unsigned int flags)
 {
-    struct ai_explanation explanation;
+    struct ai_explanation explanation = {0};
 
     if (state_status(me->state) != IN_PROGRESS) {
         fprintf(stderr, "Game over, no moves possible.\n");
@@ -523,7 +534,7 @@ static void ai_go(
 
 static void ai_debug(struct cmd_parser * restrict const me)
 {
-    struct ai_explanation explanation;
+    struct ai_explanation explanation = {0};
 
     if (state_status(me->state) != IN_PROGRESS) {
         fprintf(stderr, "Game over, no moves possible.\n");

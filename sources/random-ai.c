@@ -235,7 +235,7 @@ enum step random_ai_go(
             me->explanation_steps[qalternatives] = step;
             stats->steps = me->explanation_steps + qalternatives;
             stats->qsteps = 1;
-            stats->ball = 0;
+            stats->ball = NO_WAY;
             stats->qgames = -1;
             stats->score = 0.5;
             ++stats;

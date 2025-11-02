@@ -306,9 +306,9 @@ struct mcts_ai * create_mcts_ai(const struct geometry * const geometry)
 
     me->state = state;
     me->backup = backup;
-    me->error_buf = error_buf;
     me->bsf = bsf;
     me->explanation_steps = explanation_steps;
+    me->error_buf = error_buf;
 
     me->nodes = NULL;
     reset_cache(me);
